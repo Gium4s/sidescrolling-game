@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-
+import StartMenu from './scenes/StartMenu'
 import Game from './scenes/Game'
 import UI from './scenes/UI'
 import GameOver from './scenes/GameOver'
@@ -17,8 +17,9 @@ const config: Phaser.Types.Core.GameConfig = {
 		}
 	},
 
-	scene: [Game, UI, GameOver],
-
+	scene: [StartMenu, Game, UI, GameOver, 
+	],
+	
 	render: { 
 		pixelArt: true, 
 		roundPixels: true 

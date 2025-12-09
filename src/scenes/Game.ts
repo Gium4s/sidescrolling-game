@@ -31,6 +31,8 @@ export default class Game extends Phaser.Scene {
   }
 
   create() {
+    
+  
     // --- SFONDO: TileSprite a schermo intero, ancorato in BASSO ---
     const cam = this.cameras.main
     this.bg = this.add
@@ -41,6 +43,28 @@ export default class Game extends Phaser.Scene {
       .setPosition(0, cam.height)
 
     this.cameras.main.setRoundPixels(true)
+     
+    // Pulsante "Back to Menu"
+      const { width, height } = this.cameras.main
+
+    const backBtn = this.add.text(width - 20, 20, 'Back to Menu', {
+      fontFamily: 'Arial',
+      fontSize: '28px',
+      color: '#ffffff',
+      backgroundColor: '#00000055',
+      padding: { left: 10, right: 10, top: 5, bottom: 5 }
+    })
+      .setOrigin(1, 0)
+      .setScrollFactor(0)        // 👈 resta fisso sullo schermo
+      .setDepth(9999)            // 👈 sopra tutto
+      .setInteractive({ useHandCursor: true })
+
+    backBtn.on('pointerover', () => backBtn.setStyle({ color: '#000000ff' }))
+    backBtn.on('pointerout',  () => backBtn.setStyle({ color: '#ffffff' }))
+
+    backBtn.on('pointerup', () => {
+      this.scene.start('start-menu')   // key della scena del menu
+    })
 
     // calcola offset di base in funzione dell’altezza
     this._baseTileY = Math.floor(cam.height * this._baseTileRatio)
@@ -78,7 +102,7 @@ export default class Game extends Phaser.Scene {
       true,
       true
     )
-
+  
     // Spawn solo del player
     const objects = map.getObjectLayer('objects')
     objects?.objects.forEach(obj => {
