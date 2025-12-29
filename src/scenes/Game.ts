@@ -3,6 +3,7 @@ import PlayerController from './PlayerController'
 
 export default class Game extends Phaser.Scene {
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
+  private escKey!: Phaser.Input.Keyboard.Key
 
   private penquin?: Phaser.Physics.Matter.Sprite
   private playerController?: PlayerController
@@ -19,8 +20,12 @@ export default class Game extends Phaser.Scene {
     super('game')
   }
 
-  init() {
+  init(data: { level?: number } = {}) {
     this.cursors = this.input.keyboard!.createCursorKeys()
+    this.escKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
+
+    // (opzionale) se vuoi vedere che livello hai caricato
+    // console.log('LEVEL:', data.level ?? 1)
   }
 
   preload() {
@@ -31,8 +36,6 @@ export default class Game extends Phaser.Scene {
   }
 
   create() {
-    
-  
     // --- SFONDO: TileSprite a schermo intero, ancorato in BASSO ---
     const cam = this.cameras.main
     this.bg = this.add
@@ -43,28 +46,6 @@ export default class Game extends Phaser.Scene {
       .setPosition(0, cam.height)
 
     this.cameras.main.setRoundPixels(true)
-     
-    // Pulsante "Back to Menu"
-      const { width, height } = this.cameras.main
-
-    const backBtn = this.add.text(width - 20, 20, 'Back to Menu', {
-      fontFamily: 'Arial',
-      fontSize: '28px',
-      color: '#ffffff',
-      backgroundColor: '#00000055',
-      padding: { left: 10, right: 10, top: 5, bottom: 5 }
-    })
-      .setOrigin(1, 0)
-      .setScrollFactor(0)        // 👈 resta fisso sullo schermo
-      .setDepth(9999)            // 👈 sopra tutto
-      .setInteractive({ useHandCursor: true })
-
-    backBtn.on('pointerover', () => backBtn.setStyle({ color: '#000000ff' }))
-    backBtn.on('pointerout',  () => backBtn.setStyle({ color: '#ffffff' }))
-
-    backBtn.on('pointerup', () => {
-      this.scene.start('start-menu')   // key della scena del menu
-    })
 
     // calcola offset di base in funzione dell’altezza
     this._baseTileY = Math.floor(cam.height * this._baseTileRatio)
@@ -102,7 +83,7 @@ export default class Game extends Phaser.Scene {
       true,
       true
     )
-  
+
     // Spawn solo del player
     const objects = map.getObjectLayer('objects')
     objects?.objects.forEach(obj => {
@@ -118,24 +99,65 @@ export default class Game extends Phaser.Scene {
           this.penquin,
           this.cursors
         )
+
         this.cameras.main.startFollow(this.penquin, true)
 
         // baseline per parallasse verticale
         this._basePlayerY = this.penquin.y
       }
     })
+
+    // --- UI: GO BACK button ---
+    this.createGoBackButton()
   }
 
   update(_t: number, dt: number) {
     this.playerController?.update(dt)
+
+    // ESC = back
+    if (Phaser.Input.Keyboard.JustDown(this.escKey)) {
+      this.goBackToMenu()
+      return
+    }
 
     // Parallax orizzontale soft
     this.bg.tilePositionX = Math.floor(this.cameras.main.scrollX * 0.2)
 
     // Parallax verticale: quando il player sale (y diminuisce) il BG scende
     const playerY = this.penquin?.y ?? this._basePlayerY
-    const dyUp = Math.max(0, this._basePlayerY - playerY)   // >0 solo se sale
-    const target = this._baseTileY - Math.floor(dyUp * 0.7 ) // sposta in giù la texture
+    const dyUp = Math.max(0, this._basePlayerY - playerY) // >0 solo se sale
+    const target = this._baseTileY - Math.floor(dyUp * 0.3) // sposta in giù la texture
     this.bg.tilePositionY = Math.min(this._baseTileY, target)
+  }
+
+  // -------------------------
+  // GO BACK
+  // -------------------------
+  private createGoBackButton() {
+    const btn = this.add.text(16, 16, '← Go back', {
+      fontFamily: 'Arial',
+      fontSize: '18px',
+      color: '#ffffff',
+      backgroundColor: '#000000aa',
+      padding: { left: 10, right: 10, top: 6, bottom: 6 }
+    })
+      .setScrollFactor(0)
+      .setDepth(9999)
+      .setInteractive({ useHandCursor: true })
+
+    btn.on('pointerover', () => {
+      btn.setStyle({ backgroundColor: '#ffffffaa', color: '#000000' })
+    })
+
+    btn.on('pointerout', () => {
+      btn.setStyle({ backgroundColor: '#000000aa', color: '#ffffff' })
+    })
+
+    btn.on('pointerdown', () => this.goBackToMenu())
+  }
+
+  private goBackToMenu() {
+    const unlocked = (this.registry.get('unlocked') as number) ?? 1
+    this.scene.start('level-select', { unlocked })
   }
 }
