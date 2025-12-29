@@ -34,7 +34,7 @@ export default class LevelSelect extends Phaser.Scene {
   private planets: PlanetDef[] = [];
 
   // ====== TUNING ======
-  private readonly PLANET_SCALE = 0.22;     // <-- PIÙ PICCOLI (prova 0.25 / 0.30)
+  private readonly PLANET_SCALE = 0.22; // <-- PIÙ PICCOLI (prova 0.25 / 0.30)
   private readonly FACE_SCALE = 0.9;
 
   private readonly ORBITS_ALPHA = 0.18;
@@ -59,14 +59,15 @@ export default class LevelSelect extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image("menuBg", "assets/menuBg.png");
-    this.load.image("octoFace", "assets/octoFace.png");
-    this.load.image("pupil", "assets/pupil.png");
+    // ✅ assets in public/assets -> usare path assoluti
+    this.load.image("menuBg", "/assets/menuBg.png");
+    this.load.image("octoFace", "/assets/octoFace.png");
+    this.load.image("pupil", "/assets/pupil.png");
 
-    this.load.image("planet1", "assets/planet1.png");
-    this.load.image("planet2", "assets/planet2.png");
-    this.load.image("planet3", "assets/planet3.png");
-    this.load.image("planet4", "assets/planet4.png");
+    this.load.image("planet1", "/assets/planet1.png");
+    this.load.image("planet2", "/assets/planet2.png");
+    this.load.image("planet3", "/assets/planet3.png");
+    this.load.image("planet4", "/assets/planet4.png");
 
     this.load.on("loaderror", (file: any) => {
       console.error("LOAD ERROR:", file?.key, file?.src);
@@ -81,10 +82,10 @@ export default class LevelSelect extends Phaser.Scene {
 
     // Pianeti (posizioni relative)
     this.planets = [
-      { key: "planet1", rx: 0.25,  ry: -0.55, level: 1 },
-      { key: "planet2", rx: -0.15, ry: 0.75,  level: 2 },
-      { key: "planet3", rx: -2.00, ry: 0.09,  level: 3 },
-      { key: "planet4", rx: 2.20,  ry: 0.22,  level: 4 },
+      { key: "planet1", rx: 0.25, ry: -0.55, level: 1 },
+      { key: "planet2", rx: -0.15, ry: 0.75, level: 2 },
+      { key: "planet3", rx: -2.0, ry: 0.09, level: 3 },
+      { key: "planet4", rx: 2.2, ry: 0.22, level: 4 },
     ];
 
     this.planets.forEach((p) => {
@@ -92,13 +93,16 @@ export default class LevelSelect extends Phaser.Scene {
       img.setScale(this.PLANET_SCALE);
       p.sprite = img;
 
-      const label = this.add.text(0, 0, String(p.level), {
-        fontFamily: "Arial",
-        fontSize: "20px",
-        color: "#ffffff",
-        stroke: "#000000",
-        strokeThickness: 4,
-      }).setOrigin(0.5).setDepth(9);
+      const label = this.add
+        .text(0, 0, String(p.level), {
+          fontFamily: "Arial",
+          fontSize: "20px",
+          color: "#ffffff",
+          stroke: "#000000",
+          strokeThickness: 4,
+        })
+        .setOrigin(0.5)
+        .setDepth(9);
       p.label = label;
 
       this.applyPlanetState(p);
@@ -140,45 +144,46 @@ export default class LevelSelect extends Phaser.Scene {
   }
 
   private applyPlanetState(p: PlanetDef) {
-  const spr = p.sprite!;
-  const label = p.label!;
-  const enabled = this.canEnterLevel(p.level);
+    const spr = p.sprite!;
+    const label = p.label!;
+    const enabled = this.canEnterLevel(p.level);
 
-  spr.removeAllListeners();
-  spr.disableInteractive();
+    spr.removeAllListeners();
+    spr.disableInteractive();
 
-  if (!enabled) {
-    spr.setAlpha(this.LOCKED_ALPHA);
-    label.setAlpha(0.6);
-    return;
-  }
+    if (!enabled) {
+      spr.setAlpha(this.LOCKED_ALPHA);
+      label.setAlpha(0.6);
+      return;
+    }
 
-  spr.setAlpha(1);
-  label.setAlpha(1);
+    spr.setAlpha(1);
+    label.setAlpha(1);
 
-  // CLICK SOLO SUI PIXEL VISIBILI
-  spr.setInteractive({
-    useHandCursor: true,
-    pixelPerfect: true,
-    alphaTolerance: 1, // 1 = basta che non sia trasparente
-  });
+    // CLICK SOLO SUI PIXEL VISIBILI
+    spr.setInteractive({
+      useHandCursor: true,
+      pixelPerfect: true,
+      alphaTolerance: 1, // 1 = basta che non sia trasparente
+    });
 
-  spr.on("pointerover", () => {
-    spr.setScale(this.PLANET_SCALE * this.HOVER_SCALE);
-  });
+    spr.on("pointerover", () => {
+      spr.setScale(this.PLANET_SCALE * this.HOVER_SCALE);
+    });
 
-  spr.on("pointerout", () => {
-    spr.setScale(this.PLANET_SCALE);
-  });
+    spr.on("pointerout", () => {
+      spr.setScale(this.PLANET_SCALE);
+    });
 
-  spr.on("pointerdown", () => {
-    console.log("CLICK planet level:", p.level); // <-- se non lo vedi in console, non sta arrivando il click
-    this.scene.start("game", { level: p.level });
-  });
+    spr.on("pointerdown", () => {
+      console.log("CLICK planet level:", p.level);
+      this.scene.start("game", { level: p.level });
+    });
   }
 
   private setPlanetHitCircle(spr: Phaser.GameObjects.Image) {
-    const r = (Math.min(spr.displayWidth, spr.displayHeight) * 0.5) * this.HIT_RADIUS_RATIO;
+    const r =
+      Math.min(spr.displayWidth, spr.displayHeight) * 0.5 * this.HIT_RADIUS_RATIO;
 
     const circle = new Phaser.Geom.Circle(0, 0, r);
 
@@ -231,8 +236,6 @@ export default class LevelSelect extends Phaser.Scene {
 
       spr.setPosition(Math.round(x), Math.round(y));
       label.setPosition(spr.x, spr.y - spr.displayHeight * 0.65);
-
-    
     });
   }
 
@@ -249,9 +252,18 @@ export default class LevelSelect extends Phaser.Scene {
     const nx = dx / len;
     const ny = dy / len;
 
-    const offX = Phaser.Math.Clamp(nx * this.maxOffsetX, -this.maxOffsetX, this.maxOffsetX);
-    const offY = Phaser.Math.Clamp(ny * this.maxOffsetY, -this.maxOffsetY, this.maxOffsetY);
+    const offX = Phaser.Math.Clamp(
+      nx * this.maxOffsetX,
+      -this.maxOffsetX,
+      this.maxOffsetX
+    );
+    const offY = Phaser.Math.Clamp(
+      ny * this.maxOffsetY,
+      -this.maxOffsetY,
+      this.maxOffsetY
+    );
 
     pupil.setPosition(Math.round(eyeCenter.x + offX), Math.round(eyeCenter.y + offY));
   }
 }
+
