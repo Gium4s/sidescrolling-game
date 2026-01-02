@@ -60,7 +60,7 @@ export default class LevelSelect extends Phaser.Scene {
 
   preload() {
     // ✅ Tutti gli asset serviti da public/assets => path unico
-    this.load.setPath("/assets/");
+    this.load.setPath("assets/");
 
     this.load.image("menuBg", "menuBg.png");
     this.load.image("octoFace", "octoFace.png");
