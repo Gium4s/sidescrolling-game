@@ -59,15 +59,17 @@ export default class LevelSelect extends Phaser.Scene {
   }
 
   preload() {
-    // ✅ assets in public/assets -> usare path assoluti
-    this.load.image("menuBg", "/assets/menuBg.png");
-    this.load.image("octoFace", "/assets/octoFace.png");
-    this.load.image("pupil", "/assets/pupil.png");
+    // ✅ Tutti gli asset serviti da public/assets => path unico
+    this.load.setPath("/assets/");
 
-    this.load.image("planet1", "/assets/planet1.png");
-    this.load.image("planet2", "/assets/planet2.png");
-    this.load.image("planet3", "/assets/planet3.png");
-    this.load.image("planet4", "/assets/planet4.png");
+    this.load.image("menuBg", "menuBg.png");
+    this.load.image("octoFace", "octoFace.png");
+    this.load.image("pupil", "pupil.png");
+
+    this.load.image("planet1", "planet1.png");
+    this.load.image("planet2", "planet2.png");
+    this.load.image("planet3", "planet3.png");
+    this.load.image("planet4", "planet4.png");
 
     this.load.on("loaderror", (file: any) => {
       console.error("LOAD ERROR:", file?.key, file?.src);
@@ -266,4 +268,3 @@ export default class LevelSelect extends Phaser.Scene {
     pupil.setPosition(Math.round(eyeCenter.x + offX), Math.round(eyeCenter.y + offY));
   }
 }
-
