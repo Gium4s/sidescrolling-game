@@ -10,6 +10,9 @@ const config: Phaser.Types.Core.GameConfig = {
   height: 600,
   parent: 'game',
 
+  // ✅ serve per l'input "git init" (DOMElement)
+  dom: { createContainer: true },
+
   physics: {
     default: 'matter',
     matter: { debug: false }
