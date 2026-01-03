@@ -39,7 +39,7 @@ export default class Menu extends Phaser.Scene {
     const startX = 120;
     const startY = 360;
     const fontSize = 64;   // ⬅️ multiplo di 8 → pixel puliti
-    const gapY = 92;       // ⬅️ spazio proporzionato al font
+    const gapY = 132;       // ⬅️ spazio proporzionato al font
 
     items.forEach((item, index) => {
       const text = this.add.text(

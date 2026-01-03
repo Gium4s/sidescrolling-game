@@ -99,7 +99,7 @@ export default class LevelSelect extends Phaser.Scene {
   }
 
   create() {
-    this.cameras.main.setBackgroundColor("#28373C");
+    this.cameras.main.setBackgroundColor("#15263B");
 
     // BG base
     this.bg = this.add.image(0, 0, "menuBg").setOrigin(0.5).setDepth(0);
