@@ -26,6 +26,7 @@ export default class LevelSelect extends Phaser.Scene {
   private eyeL = new Phaser.Math.Vector2();
   private eyeR = new Phaser.Math.Vector2();
 
+  // offset occhi rispetto al centro faccia (px su file originale)
   private eyeOffsetL = new Phaser.Math.Vector2(9, -1);
   private eyeOffsetR = new Phaser.Math.Vector2(116, -1);
 
@@ -67,11 +68,13 @@ export default class LevelSelect extends Phaser.Scene {
 
     const fromStorage = Number(localStorage.getItem("unlocked") ?? "1") || 1;
 
+    // priorità: data -> registry -> localStorage -> 1
     this.unlocked = fromData ?? fromRegistry ?? fromStorage ?? 1;
 
-    // ✅ carica initDone (per non riscrivere "git init" ogni volta)
+    // initDone (per non riscrivere "git init" ogni volta)
     this.initDone = this.loadInitDone();
 
+    // sync sempre
     this.registry.set("unlocked", this.unlocked);
     localStorage.setItem("unlocked", String(this.unlocked));
 
@@ -91,15 +94,17 @@ export default class LevelSelect extends Phaser.Scene {
     this.load.image("planet4", "planet4.png");
 
     this.load.on("loaderror", (file: any) => {
-      console.error("LOAD ERROR:", file?.key, file?.src);
+      console.error("[LevelSelect] LOAD ERROR:", file?.key, file?.src);
     });
   }
 
   create() {
     this.cameras.main.setBackgroundColor("#28373C");
 
+    // BG base
     this.bg = this.add.image(0, 0, "menuBg").setOrigin(0.5).setDepth(0);
 
+    // Pianeti (posizioni relative)
     this.planets = [
       { key: "planet1", rx: 0.25, ry: -0.55, level: 1 },
       { key: "planet2", rx: -0.15, ry: 0.75, level: 2 },
@@ -107,6 +112,7 @@ export default class LevelSelect extends Phaser.Scene {
       { key: "planet4", rx: 2.2, ry: 0.22, level: 4 },
     ];
 
+    // Crea pianeti + label + listener (SEMPRE)
     this.planets.forEach((p) => {
       const spr = this.add.image(0, 0, p.key).setOrigin(0.5).setDepth(5);
       spr.setScale(this.PLANET_SCALE);
@@ -124,33 +130,26 @@ export default class LevelSelect extends Phaser.Scene {
         .setDepth(9);
       p.label = label;
 
-      // ✅ pianeti SEMPRE cliccabili come hit-test,
-      // ma la logica decide se aprire input / entrare / ignorare
-      spr.setInteractive({
-        useHandCursor: true,
-        pixelPerfect: true,
-        alphaTolerance: 1,
-      });
-
-      spr.on("pointerover", () => spr.setScale(this.PLANET_SCALE * this.HOVER_SCALE));
-      spr.on("pointerout", () => spr.setScale(this.PLANET_SCALE));
-
-      spr.on("pointerdown", () => this.onPlanetClicked(p.level));
+      this.enablePlanetInteractivity(p);
     });
 
+    // Overlay orbite (stessa immagine sopra ai pianeti)
     this.orbitsOverlay = this.add
       .image(0, 0, "menuBg")
       .setOrigin(0.5)
       .setDepth(6)
       .setAlpha(this.ORBITS_ALPHA);
 
+    // Faccia e pupille sopra
     this.face = this.add.image(0, 0, "octoFace").setOrigin(0.5).setDepth(10);
     this.pupilL = this.add.image(0, 0, "pupil").setOrigin(0.5).setDepth(11);
     this.pupilR = this.add.image(0, 0, "pupil").setOrigin(0.5).setDepth(11);
 
     this.layout();
     this.refreshPlanetVisualState();
+    this.createGoBackButton();
 
+    // mouse move -> pupille
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       this.updatePupil(this.pupilL, this.eyeL, world.x, world.y);
@@ -168,26 +167,69 @@ export default class LevelSelect extends Phaser.Scene {
     });
   }
 
+  // =========================
+  // Planet interactivity
+  // =========================
+  private enablePlanetInteractivity(p: PlanetDef) {
+    const spr = p.sprite!;
+    spr.removeAllListeners();
+    spr.disableInteractive();
+
+    spr.setInteractive({
+      useHandCursor: true,
+      pixelPerfect: true,
+      alphaTolerance: 1,
+    });
+
+    spr.on("pointerover", () => spr.setScale(this.PLANET_SCALE * this.HOVER_SCALE));
+    spr.on("pointerout", () => spr.setScale(this.PLANET_SCALE));
+    spr.on("pointerdown", () => this.onPlanetClicked(p.level));
+  }
+
+  private disableAllPlanetsInteractivity() {
+    this.planets.forEach((p) => p.sprite?.disableInteractive());
+  }
+
+  private enableAllPlanetsInteractivity() {
+    this.planets.forEach((p) => this.enablePlanetInteractivity(p));
+  }
+
   private onPlanetClicked(level: number) {
-    // 🔒 se non sbloccato (non hai fatto UFO del precedente) => niente
+    console.log(
+      "[LevelSelect] CLICK planet",
+      level,
+      "unlocked:",
+      this.unlocked,
+      "initDone:",
+      this.initDone[level]
+    );
+
+    // locked: non hai raggiunto l’ufo del precedente
     if (level > this.unlocked) {
-      console.log("[LevelSelect] level locked:", level, "unlocked =", this.unlocked);
+      console.log("[LevelSelect] level locked:", level);
       return;
     }
 
-    // ✅ se "git init" già fatto per questo livello => entra diretto
+    // initDone -> entra diretto
     if (this.initDone[level]) {
+      console.log("[LevelSelect] init already done -> start level", level);
       this.scene.start("game", { level });
       return;
     }
 
-    // ⌨️ altrimenti chiedi comando
+    // altrimenti prompt
     this.openCommandPrompt(level);
   }
 
+  // =========================
+  // Command prompt (git init)
+  // =========================
   private openCommandPrompt(level: number) {
     this.closeCommandPrompt();
     this.pendingLevel = level;
+
+    // blocca pianeti mentre scrivi
+    this.disableAllPlanetsInteractivity();
 
     const w = this.scale.width;
     const h = this.scale.height;
@@ -216,7 +258,7 @@ export default class LevelSelect extends Phaser.Scene {
             background: rgba(0,0,0,0.45);
             color: white;
           "
-          placeholder='git init'
+          placeholder="git init"
         />
         <div style="margin-top:10px; font-size:13px; opacity:0.8;">
           (Press Enter • Esc to cancel)
@@ -229,6 +271,8 @@ export default class LevelSelect extends Phaser.Scene {
       .createFromHTML(html)
       .setDepth(9999);
 
+    console.log("[LevelSelect] commandContainer created:", !!this.commandContainer);
+
     const input = this.commandContainer.getChildByID("cmd") as HTMLInputElement | null;
     if (input) {
       input.focus();
@@ -236,17 +280,16 @@ export default class LevelSelect extends Phaser.Scene {
       input.addEventListener("keydown", (ev: KeyboardEvent) => {
         if (ev.key === "Enter") {
           const value = (input.value || "").trim().toLowerCase();
+
           if (value === "git init") {
             this.initDone[level] = true;
             this.saveInitDone(this.initDone);
 
-            // (opzionale) puoi anche “rendere nitido” il pianeta
             this.refreshPlanetVisualState();
 
             this.closeCommandPrompt();
             this.scene.start("game", { level });
           } else {
-            // feedback rapido
             input.style.borderColor = "rgba(255, 80, 80, 0.85)";
             setTimeout(() => (input.style.borderColor = "rgba(255,255,255,0.35)"), 250);
           }
@@ -269,40 +312,48 @@ export default class LevelSelect extends Phaser.Scene {
       this.inputBlocker.destroy();
       this.inputBlocker = undefined;
     }
+
+    // riattiva pianeti
+    this.enableAllPlanetsInteractivity();
+    this.refreshPlanetVisualState();
   }
 
   private refreshPlanetVisualState() {
     this.planets.forEach((p) => {
       const spr = p.sprite!;
       const label = p.label!;
-      const locked = p.level > this.unlocked;
 
+      const locked = p.level > this.unlocked;
       if (locked) {
         spr.setAlpha(this.LOCKED_ALPHA);
         label.setAlpha(0.6);
         return;
       }
 
-      // sbloccato:
-      // se initDone[level] => pieno; se no => puoi scegliere: leggermente “locked” finché non scrivi git init
       const done = !!this.initDone[p.level];
       spr.setAlpha(done ? 1 : 0.75);
       label.setAlpha(1);
     });
   }
 
+  // =========================
+  // Layout
+  // =========================
   private layout() {
     const w = this.scale.width;
     const h = this.scale.height;
     const cx = w * 0.5;
     const cy = h * 0.5;
 
+    // BG contain
     const bgS = Math.min(w / this.bg.width, h / this.bg.height);
     this.bg.setScale(bgS).setPosition(cx, cy);
     this.orbitsOverlay.setScale(bgS).setPosition(cx, cy);
 
+    // testa
     this.face.setScale(this.FACE_SCALE).setPosition(cx, cy);
 
+    // occhi
     const fx = this.face.scaleX;
     const fy = this.face.scaleY;
 
@@ -312,6 +363,7 @@ export default class LevelSelect extends Phaser.Scene {
     this.pupilL.setPosition(this.eyeL.x, this.eyeL.y);
     this.pupilR.setPosition(this.eyeR.x, this.eyeR.y);
 
+    // pianeti
     const radius = Math.min(w, h) * 0.43;
 
     this.planets.forEach((p) => {
@@ -333,7 +385,7 @@ export default class LevelSelect extends Phaser.Scene {
       label.setPosition(spr.x, spr.y - spr.displayHeight * 0.65);
     });
 
-    // se prompt aperto e fai resize, riallinea overlay
+    // se prompt aperto e fai resize
     if (this.inputBlocker) this.inputBlocker.setSize(w, h);
     if (this.commandContainer) this.commandContainer.setPosition(w * 0.5, h * 0.65);
   }
@@ -357,16 +409,40 @@ export default class LevelSelect extends Phaser.Scene {
     pupil.setPosition(Math.round(eyeCenter.x + offX), Math.round(eyeCenter.y + offY));
   }
 
-  // -------------------------
+  // =========================
+  // Go back
+  // =========================
+  private createGoBackButton() {
+    const btn = this.add
+      .text(16, 16, "← Go back", {
+        fontFamily: "Arial",
+        fontSize: "18px",
+        color: "#ffffff",
+        backgroundColor: "#000000aa",
+        padding: { left: 10, right: 10, top: 6, bottom: 6 },
+      })
+      .setScrollFactor(0)
+      .setDepth(9999)
+      .setInteractive({ useHandCursor: true });
+
+    btn.on("pointerover", () =>
+      btn.setStyle({ backgroundColor: "#ffffffaa", color: "#000000" })
+    );
+    btn.on("pointerout", () =>
+      btn.setStyle({ backgroundColor: "#000000aa", color: "#ffffff" })
+    );
+    btn.on("pointerdown", () => this.scene.start("menu"));
+  }
+
+  // =========================
   // persistence helpers
-  // -------------------------
+  // =========================
   private loadInitDone(): InitDoneMap {
     try {
       const raw = localStorage.getItem("initDone");
       if (!raw) return {};
       const obj = JSON.parse(raw);
       if (!obj || typeof obj !== "object") return {};
-      // normalizza chiavi in numeri
       const out: InitDoneMap = {};
       for (const k of Object.keys(obj)) out[Number(k)] = !!obj[k];
       return out;
