@@ -1,5 +1,11 @@
 import Phaser from "phaser";
 
+type MenuItem = {
+  key: "play" | "levels" | "credits" | "options";
+  label: string;
+  enabled: boolean;
+};
+
 export default class Menu extends Phaser.Scene {
   private bg!: Phaser.GameObjects.Image;
 
@@ -12,69 +18,75 @@ export default class Menu extends Phaser.Scene {
     this.load.image("menu", "menu.png");
   }
 
-  create() {
-    // ✅ colore delle barre (e dello sfondo in generale)
+  async create() {
+    // 🎨 background
     this.cameras.main.setBackgroundColor("#2C454E");
 
-    // ✅ carico font pixel via CSS (serve avere il .ttf in public/assets)
-    this.injectPixelFontCSS();
+    // 🔤 font pixel
+    await this.injectPixelFontCSS();
 
+    // 🖼️ background image
     this.bg = this.add.image(0, 0, "menu").setOrigin(0.5);
 
-    const items = [
+    const items: MenuItem[] = [
       { key: "play", label: "Gioca", enabled: true },
       { key: "levels", label: "Livelli", enabled: true },
       { key: "credits", label: "Credits", enabled: false },
       { key: "options", label: "Opzioni", enabled: false },
     ];
 
-    // ✅ più in basso
+    // 📐 layout menu
     const startX = 120;
-    const startY = 360;   // <-- prima era 270
-    const gapY = 58;
+    const startY = 360;
+    const fontSize = 64;   // ⬅️ multiplo di 8 → pixel puliti
+    const gapY = 92;       // ⬅️ spazio proporzionato al font
 
-    items.forEach((it, i) => {
-      const t = this.add
-        .text(startX, startY + i * gapY, it.label, {
-          fontFamily: '"PixelFont", monospace', // <-- pixel se hai il ttf
-          fontSize: "44px",
-          color: it.enabled ? "#ffffff" : "#9a9a9a",
-        })
+    items.forEach((item, index) => {
+      const text = this.add.text(
+        startX,
+        startY + index * gapY,
+        item.label,
+        {
+          fontFamily: '"PixelFont", monospace',
+          fontSize: `${fontSize}px`,
+          color: item.enabled ? "#ffffff" : "#9a9a9a",
+        }
+      );
+
+      text
         .setOrigin(0, 0.5)
-        .setDepth(10);
+        .setDepth(10)
+        .setResolution(1); // 🧼 pixel netti
 
-      if (!it.enabled) return;
+      if (!item.enabled) return;
 
-      t.setInteractive({ useHandCursor: true });
+      text.setInteractive({ useHandCursor: true });
 
-      t.on("pointerover", () => t.setColor("#FFFE7A"));
-      t.on("pointerout", () => t.setColor("#ffffff"));
+      text.on("pointerover", () => text.setColor("#FFFE7A"));
+      text.on("pointerout", () => text.setColor("#ffffff"));
 
-      t.on("pointerdown", () => {
-        if (it.key === "play") this.onPlay();
-        if (it.key === "levels") this.onLevels();
+      text.on("pointerdown", () => {
+        if (item.key === "play") this.onPlay();
+        if (item.key === "levels") this.onLevels();
       });
     });
 
     this.layout();
-    this.scale.on(Phaser.Scale.Events.RESIZE, () => this.layout());
+    this.scale.on(Phaser.Scale.Events.RESIZE, this.layout, this);
   }
 
   private layout() {
     const w = this.scale.width;
     const h = this.scale.height;
-    const cx = w * 0.5;
-    const cy = h * 0.5;
 
-    // ✅ COVER (riempie tutto, niente bande nere)
-    const s = Math.max(w / this.bg.width, h / this.bg.height);
-    this.bg.setScale(s).setPosition(cx, cy);
+    const scale = Math.max(w / this.bg.width, h / this.bg.height);
+    this.bg.setScale(scale).setPosition(w * 0.5, h * 0.5);
   }
 
   private onPlay() {
-    const savedLevel = Number(localStorage.getItem("currentLevel") ?? "0") || 0;
+    const savedLevel = Number(localStorage.getItem("currentLevel")) || 0;
 
-    if (!savedLevel || savedLevel < 1) {
+    if (savedLevel < 1) {
       this.onLevels();
       return;
     }
@@ -83,27 +95,29 @@ export default class Menu extends Phaser.Scene {
   }
 
   private onLevels() {
-    const unlocked = Number(localStorage.getItem("unlocked") ?? "1") || 1;
+    const unlocked = Number(localStorage.getItem("unlocked")) || 1;
     this.scene.start("level-select", { unlocked });
   }
 
-  private injectPixelFontCSS() {
+  private async injectPixelFontCSS(): Promise<void> {
     const id = "pixel-font-css";
-    if (document.getElementById(id)) return;
 
-    const style = document.createElement("style");
-    style.id = id;
+    if (!document.getElementById(id)) {
+      const style = document.createElement("style");
+      style.id = id;
+      style.innerHTML = `
+        @font-face {
+          font-family: "PixelFont";
+          src: url("assets/pixel.ttf") format("truetype");
+          font-weight: normal;
+          font-style: normal;
+        }
+      `;
+      document.head.appendChild(style);
+    }
 
-    // ⚠️ cambia "pixel.ttf" se il tuo font ha un altro nome
-    style.innerHTML = `
-      @font-face {
-        font-family: "PixelFont";
-        src: url("assets/pixel.ttf") format("truetype");
-        font-weight: normal;
-        font-style: normal;
-      }
-    `;
-
-    document.head.appendChild(style);
+    // ⏳ aspetta il font prima di disegnare il testo
+    await document.fonts.load('16px "PixelFont"');
+    await document.fonts.ready;
   }
 }
