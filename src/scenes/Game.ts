@@ -334,9 +334,10 @@ export default class Game extends Phaser.Scene {
       }
     });
 
+    
     // UI
     this.createGoBackButton();
-
+    
     // cleanup
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
       this.input.keyboard?.off("keydown", this.onTerminalKeyDown, this);
@@ -344,10 +345,10 @@ export default class Game extends Phaser.Scene {
   }
 
   update(_t: number, dt: number) {
-    // ESC = back / close terminal
+    // ESC = back to menu
     if (Phaser.Input.Keyboard.JustDown(this.escKey)) {
-      if (this.terminalOpen) this.closeTerminal();
-      else this.goBackToMenu();
+        // Qui sarebbe opportuno aprire un menu di pausa prima di tornare al menu principale con un alert
+        this.goBackToMenu();
       return;
     }
 
@@ -780,7 +781,7 @@ export default class Game extends Phaser.Scene {
     const footer = this.add.text(
       -boxW / 2 + 22,
       boxH / 2 - 34,
-      `Invio = esegui   |   Backspace = cancella   |   ESC = chiudi`,
+      `Invio = esegui   |   Backspace = cancella   |   CTRL-C = chiudi`,
       { fontFamily: "monospace", fontSize: FOOTER, color: "#bbbbbb" }
     );
 
@@ -845,7 +846,7 @@ export default class Game extends Phaser.Scene {
     e.stopPropagation();
     e.preventDefault();
 
-    if (e.key === "Escape") {
+    if (e.ctrlKey && e.key === "c") {
       this.closeTerminal();
       return;
     }
