@@ -253,7 +253,8 @@ export default class Game extends Phaser.Scene {
       .sprite(sx + sw * 0.5, sy, "penquin")
       .setOrigin(0.5, 0.365)
       .setScale(1.5)
-      .setFixedRotation();
+      .setFixedRotation()
+      .setFriction(0);
 
     this.playerController = new PlayerController(this, this.penquin, this.cursors);
     cam.startFollow(this.penquin, true);
