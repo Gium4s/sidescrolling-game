@@ -1,3 +1,4 @@
+// LevelSelect.ts
 import Phaser from "phaser";
 
 type LevelSelectData = { unlocked?: number };
@@ -26,7 +27,6 @@ export default class LevelSelect extends Phaser.Scene {
   private eyeL = new Phaser.Math.Vector2();
   private eyeR = new Phaser.Math.Vector2();
 
-  // offset occhi rispetto al centro faccia (px su file originale)
   private eyeOffsetL = new Phaser.Math.Vector2(9, -1);
   private eyeOffsetR = new Phaser.Math.Vector2(116, -1);
 
@@ -47,13 +47,15 @@ export default class LevelSelect extends Phaser.Scene {
   private readonly PLANET_PADDING = 20;
   // ====================
 
-  // progress
   private initDone: InitDoneMap = {};
 
-  // UI input
   private inputBlocker?: Phaser.GameObjects.Rectangle;
   private commandContainer?: Phaser.GameObjects.DOMElement;
   private pendingLevel?: number;
+
+  // ✅ Audio
+  private clickSfx?: Phaser.Sound.BaseSound;
+  private music?: Phaser.Sound.BaseSound;
 
   constructor() {
     super("level-select");
@@ -63,22 +65,16 @@ export default class LevelSelect extends Phaser.Scene {
     const fromData = data.unlocked;
 
     const fromRegistryRaw = this.registry.get("unlocked");
-    const fromRegistry =
-      typeof fromRegistryRaw === "number" ? fromRegistryRaw : undefined;
+    const fromRegistry = typeof fromRegistryRaw === "number" ? fromRegistryRaw : undefined;
 
     const fromStorage = Number(localStorage.getItem("unlocked") ?? "1") || 1;
 
-    // priorità: data -> registry -> localStorage -> 1
     this.unlocked = fromData ?? fromRegistry ?? fromStorage ?? 1;
 
-    // initDone (per non riscrivere "git init" ogni volta)
     this.initDone = this.loadInitDone();
 
-    // sync sempre
     this.registry.set("unlocked", this.unlocked);
     localStorage.setItem("unlocked", String(this.unlocked));
-
-    console.log("[LevelSelect] unlocked =", this.unlocked, "initDone =", this.initDone);
   }
 
   preload() {
@@ -93,6 +89,10 @@ export default class LevelSelect extends Phaser.Scene {
     this.load.image("planet3", "planet3.png");
     this.load.image("planet4", "planet4.png");
 
+    // ✅ audio (così funziona anche se arrivi qui senza passare dal Menu)
+    this.load.audio("sfx_click", "computer-mouse-click-352734.mp3");
+    this.load.audio("music_menu", "356-8-bit-chiptune-game-music-357518.mp3");
+
     this.load.on("loaderror", (file: any) => {
       console.error("[LevelSelect] LOAD ERROR:", file?.key, file?.src);
     });
@@ -101,10 +101,11 @@ export default class LevelSelect extends Phaser.Scene {
   create() {
     this.cameras.main.setBackgroundColor("#15263B");
 
-    // BG base
+    // ✅ setup audio (continua musica menu)
+    this.setupAudio();
+
     this.bg = this.add.image(0, 0, "menuBg").setOrigin(0.5).setDepth(0);
 
-    // Pianeti (posizioni relative)
     this.planets = [
       { key: "planet1", rx: 0.25, ry: -0.55, level: 1 },
       { key: "planet2", rx: -0.15, ry: 0.75, level: 2 },
@@ -112,7 +113,6 @@ export default class LevelSelect extends Phaser.Scene {
       { key: "planet4", rx: 2.2, ry: 0.22, level: 4 },
     ];
 
-    // Crea pianeti + label + listener (SEMPRE)
     this.planets.forEach((p) => {
       const spr = this.add.image(0, 0, p.key).setOrigin(0.5).setDepth(5);
       spr.setScale(this.PLANET_SCALE);
@@ -133,14 +133,12 @@ export default class LevelSelect extends Phaser.Scene {
       this.enablePlanetInteractivity(p);
     });
 
-    // Overlay orbite (stessa immagine sopra ai pianeti)
     this.orbitsOverlay = this.add
       .image(0, 0, "menuBg")
       .setOrigin(0.5)
       .setDepth(6)
       .setAlpha(this.ORBITS_ALPHA);
 
-    // Faccia e pupille sopra
     this.face = this.add.image(0, 0, "octoFace").setOrigin(0.5).setDepth(10);
     this.pupilL = this.add.image(0, 0, "pupil").setOrigin(0.5).setDepth(11);
     this.pupilR = this.add.image(0, 0, "pupil").setOrigin(0.5).setDepth(11);
@@ -149,7 +147,6 @@ export default class LevelSelect extends Phaser.Scene {
     this.refreshPlanetVisualState();
     this.createGoBackButton();
 
-    // mouse move -> pupille
     this.input.on("pointermove", (pointer: Phaser.Input.Pointer) => {
       const world = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
       this.updatePupil(this.pupilL, this.eyeL, world.x, world.y);
@@ -168,6 +165,39 @@ export default class LevelSelect extends Phaser.Scene {
   }
 
   // =========================
+  // ✅ AUDIO
+  // =========================
+  private setupAudio() {
+    // click
+    if (!this.clickSfx) {
+      this.clickSfx = this.sound.add("sfx_click", { volume: 0.6 });
+    }
+
+    // musica: se già esiste (da Menu) NON la ricreo, la riuso
+    const existing = this.sound.get("music_menu");
+    if (existing) {
+      this.music = existing;
+      if (!this.music.isPlaying) this.music.play({ loop: true, volume: 0.35 });
+    } else {
+      this.music = this.sound.add("music_menu", { loop: true, volume: 0.35 });
+      this.music.play();
+    }
+  }
+
+  private playClick() {
+    if (!this.clickSfx) return;
+    if (this.clickSfx.isPlaying) this.clickSfx.stop();
+    this.clickSfx.play();
+  }
+
+  private stopMenuMusic() {
+    const m = this.sound.get("music_menu");
+    if (!m) return;
+    m.stop();
+    m.destroy();
+  }
+
+  // =========================
   // Planet interactivity
   // =========================
   private enablePlanetInteractivity(p: PlanetDef) {
@@ -183,7 +213,11 @@ export default class LevelSelect extends Phaser.Scene {
 
     spr.on("pointerover", () => spr.setScale(this.PLANET_SCALE * this.HOVER_SCALE));
     spr.on("pointerout", () => spr.setScale(this.PLANET_SCALE));
-    spr.on("pointerdown", () => this.onPlanetClicked(p.level));
+
+    spr.on("pointerdown", () => {
+      this.playClick();
+      this.onPlanetClicked(p.level);
+    });
   }
 
   private disableAllPlanetsInteractivity() {
@@ -195,29 +229,20 @@ export default class LevelSelect extends Phaser.Scene {
   }
 
   private onPlanetClicked(level: number) {
-    console.log(
-      "[LevelSelect] CLICK planet",
-      level,
-      "unlocked:",
-      this.unlocked,
-      "initDone:",
-      this.initDone[level]
-    );
+    // locked
+    if (level > this.unlocked) return;
 
-    // locked: non hai raggiunto l’ufo del precedente
-    if (level > this.unlocked) {
-      console.log("[LevelSelect] level locked:", level);
-      return;
-    }
-
-    // initDone -> entra diretto
+    // ✅ se è già initDone -> entra diretto (NO intro)
     if (this.initDone[level]) {
-      console.log("[LevelSelect] init already done -> start level", level);
+      // ✅ salva ultimo livello avviato
+      localStorage.setItem("currentLevel", String(level));
+
+      // entrando nel gioco: stop musica menu
+      this.stopMenuMusic();
       this.scene.start("game", { level });
       return;
     }
 
-    // altrimenti prompt
     this.openCommandPrompt(level);
   }
 
@@ -228,13 +253,11 @@ export default class LevelSelect extends Phaser.Scene {
     this.closeCommandPrompt();
     this.pendingLevel = level;
 
-    // blocca pianeti mentre scrivi
     this.disableAllPlanetsInteractivity();
 
     const w = this.scale.width;
     const h = this.scale.height;
 
-    // blocker (click fuori non deve cliccare pianeti)
     this.inputBlocker = this.add
       .rectangle(0, 0, w, h, 0x000000, 0.55)
       .setOrigin(0, 0)
@@ -266,18 +289,26 @@ export default class LevelSelect extends Phaser.Scene {
       </div>
     `;
 
-    this.commandContainer = this.add
-      .dom(w * 0.5, h * 0.65)
-      .createFromHTML(html)
-      .setDepth(9999);
-
-    console.log("[LevelSelect] commandContainer created:", !!this.commandContainer);
+    this.commandContainer = this.add.dom(w * 0.5, h * 0.65).createFromHTML(html).setDepth(9999);
 
     const input = this.commandContainer.getChildByID("cmd") as HTMLInputElement | null;
+
     if (input) {
+      const stop = (e: Event) => e.stopPropagation();
+      input.addEventListener("keydown", stop);
+      input.addEventListener("keyup", stop);
+      input.addEventListener("keypress", stop);
+
+      this.input.keyboard?.removeCapture(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
       input.focus();
 
       input.addEventListener("keydown", (ev: KeyboardEvent) => {
+        if (ev.key === "Escape") {
+          this.closeCommandPrompt();
+          return;
+        }
+
         if (ev.key === "Enter") {
           const value = (input.value || "").trim().toLowerCase();
 
@@ -285,10 +316,17 @@ export default class LevelSelect extends Phaser.Scene {
             this.initDone[level] = true;
             this.saveInitDone(this.initDone);
 
-            this.refreshPlanetVisualState();
+            // ✅ salva l'ultimo pianeta dove hai fatto git init
+            localStorage.setItem("lastInitLevel", String(level));
+            // ✅ opzionale ma utile: salva anche il current
+            localStorage.setItem("currentLevel", String(level));
 
+            this.refreshPlanetVisualState();
             this.closeCommandPrompt();
-            this.scene.start("game", { level });
+
+            // entrando nel gioco: stop musica menu
+            this.stopMenuMusic();
+            this.scene.start("game", { level, introDrop: true });
           } else {
             input.style.borderColor = "rgba(255, 80, 80, 0.85)";
             setTimeout(() => (input.style.borderColor = "rgba(255,255,255,0.35)"), 250);
@@ -297,23 +335,18 @@ export default class LevelSelect extends Phaser.Scene {
       });
     }
 
-    // ESC chiude
     this.input.keyboard?.once("keydown-ESC", () => this.closeCommandPrompt());
   }
 
   private closeCommandPrompt() {
     this.pendingLevel = undefined;
 
-    if (this.commandContainer) {
-      this.commandContainer.destroy();
-      this.commandContainer = undefined;
-    }
-    if (this.inputBlocker) {
-      this.inputBlocker.destroy();
-      this.inputBlocker = undefined;
-    }
+    this.commandContainer?.destroy();
+    this.commandContainer = undefined;
 
-    // riattiva pianeti
+    this.inputBlocker?.destroy();
+    this.inputBlocker = undefined;
+
     this.enableAllPlanetsInteractivity();
     this.refreshPlanetVisualState();
   }
@@ -345,15 +378,12 @@ export default class LevelSelect extends Phaser.Scene {
     const cx = w * 0.5;
     const cy = h * 0.5;
 
-    // BG contain
     const bgS = Math.min(w / this.bg.width, h / this.bg.height);
     this.bg.setScale(bgS).setPosition(cx, cy);
     this.orbitsOverlay.setScale(bgS).setPosition(cx, cy);
 
-    // testa
     this.face.setScale(this.FACE_SCALE).setPosition(cx, cy);
 
-    // occhi
     const fx = this.face.scaleX;
     const fy = this.face.scaleY;
 
@@ -363,7 +393,6 @@ export default class LevelSelect extends Phaser.Scene {
     this.pupilL.setPosition(this.eyeL.x, this.eyeL.y);
     this.pupilR.setPosition(this.eyeR.x, this.eyeR.y);
 
-    // pianeti
     const radius = Math.min(w, h) * 0.43;
 
     this.planets.forEach((p) => {
@@ -385,7 +414,6 @@ export default class LevelSelect extends Phaser.Scene {
       label.setPosition(spr.x, spr.y - spr.displayHeight * 0.65);
     });
 
-    // se prompt aperto e fai resize
     if (this.inputBlocker) this.inputBlocker.setSize(w, h);
     if (this.commandContainer) this.commandContainer.setPosition(w * 0.5, h * 0.65);
   }
@@ -425,13 +453,13 @@ export default class LevelSelect extends Phaser.Scene {
       .setDepth(9999)
       .setInteractive({ useHandCursor: true });
 
-    btn.on("pointerover", () =>
-      btn.setStyle({ backgroundColor: "#ffffffaa", color: "#000000" })
-    );
-    btn.on("pointerout", () =>
-      btn.setStyle({ backgroundColor: "#000000aa", color: "#ffffff" })
-    );
-    btn.on("pointerdown", () => this.scene.start("menu"));
+    btn.on("pointerover", () => btn.setStyle({ backgroundColor: "#ffffffaa", color: "#000000" }));
+    btn.on("pointerout", () => btn.setStyle({ backgroundColor: "#000000aa", color: "#ffffff" }));
+
+    btn.on("pointerdown", () => {
+      this.playClick();
+      this.scene.start("menu");
+    });
   }
 
   // =========================
