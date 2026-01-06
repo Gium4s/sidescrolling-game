@@ -943,33 +943,44 @@ export default class Game extends Phaser.Scene {
     }
   }
 
-  private createTerminalTriggerFromTiles(layer: Phaser.Tilemaps.TilemapLayer) {
-    const map = layer.tilemap;
-    const w = map.tileWidth;
-    const h = map.tileHeight;
+    private createTerminalTriggerFromTiles(
+      layer: Phaser.Tilemaps.TilemapLayer
+    ) {
+      let found: { x: number; y: number } | null = null;
 
-    let found: { x: number; y: number } | null = null;
+      layer.forEachTile((t) => {
+        if (!t || t.index < 0 || found) return;
 
-    layer.forEachTile((t) => {
-      if (!t || t.index < 0) return;
-      const p = t.properties as any;
-      if (p && p.git === "file") found = { x: t.x, y: t.y };
-    });
+        const p = t.properties as any;
+        if (p?.git === "file") {
+          found = { x: t.x, y: t.y };
+        }
+      });
 
-    if (!found) return;
+      if (!found) return;
 
-    const cx = found.x * w + w / 2;
-    const cy = found.y * h + h / 2;
+      const { x, y } = found;
 
-    const body = this.matter.add.rectangle(cx, cy, w * 1.2, h * 1.2, {
-      isStatic: true,
-      isSensor: true,
-      label: "git-terminal-trigger",
-    });
+      const tileW = layer.tilemap.tileWidth;
+      const tileH = layer.tilemap.tileHeight;
 
-    this.terminalTriggerBody = body;
-  }
+      const cx = x * tileW + tileW / 2;
+      const cy = y * tileH + tileH / 2;
 
+      const body = this.matter.add.rectangle(
+        cx,
+        cy,
+        tileW * 1.2,
+        tileH * 1.2,
+        {
+          isStatic: true,
+          isSensor: true,
+          label: "git-terminal-trigger",
+        }
+      );
+
+      this.terminalTriggerBody = body;
+    }
   private isPlayerInsideRectBody(player: MatterJS.BodyType, rect: MatterJS.BodyType) {
     const px = player.position.x;
     const py = player.position.y;
