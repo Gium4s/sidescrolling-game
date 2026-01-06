@@ -863,6 +863,32 @@ export default class Game extends Phaser.Scene {
       return;
     }
 
+    // Handle "Dead" keys (modifier keys for accents/quotes)
+    // Use e.key if it's a single character, otherwise use e.code for common symbols
+    if (e.key === "Dead") {
+      // Try to get the character from e.code and shift state
+      // e.code examples: "Quote", "Backquote", "BracketLeft", "BracketRight", "Digit6" (for ^)
+      // We'll handle the most common ones for quotes and caret
+      let char = "";
+      switch (e.code) {
+        case "Quote":
+          char = e.shiftKey ? '"' : "'";
+          break;
+        case "Backquote":
+          char = "`";
+          break;
+        case "Digit6":
+          if (e.shiftKey) char = "^";
+          break;
+        // Add more cases as needed for your keyboard layout
+      }
+      if (char) {
+        this.terminalInput += char;
+        this.refreshTerminalInput();
+      }
+      return;
+    }
+
     if (e.key.length === 1) {
       this.terminalInput += e.key;
       this.refreshTerminalInput();
