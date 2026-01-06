@@ -5,8 +5,6 @@ type LevelSelectData = { unlocked?: number };
 
 type PlanetDef = {
   key: string;
-  rx: number;
-  ry: number;
   level: number;
   sprite?: Phaser.GameObjects.Image;
   label?: Phaser.GameObjects.Text;
@@ -106,11 +104,12 @@ export default class LevelSelect extends Phaser.Scene {
 
     this.bg = this.add.image(0, 0, "menuBg").setOrigin(0.5).setDepth(0);
 
+    // Remove rx/ry from here, only keep key and level
     this.planets = [
-      { key: "planet1", rx: 0.25, ry: -0.55, level: 1 },
-      { key: "planet2", rx: -0.15, ry: 0.75, level: 2 },
-      { key: "planet3", rx: -2.0, ry: 0.09, level: 3 },
-      { key: "planet4", rx: 2.2, ry: 0.22, level: 4 },
+      { key: "planet1", level: 1 },
+      { key: "planet2", level: 2 },
+      { key: "planet3", level: 3 },
+      { key: "planet4", level: 4 },
     ];
 
     this.planets.forEach((p) => {
@@ -393,22 +392,32 @@ export default class LevelSelect extends Phaser.Scene {
     this.pupilL.setPosition(this.eyeL.x, this.eyeL.y);
     this.pupilR.setPosition(this.eyeR.x, this.eyeR.y);
 
-    const radius = Math.min(w, h) * 0.43;
+    // Use ellipse for planet positions
+    const rx = w * 0.43;
+    const ry = h * 0.32;
+    const padding = this.PLANET_PADDING;
 
-    this.planets.forEach((p) => {
+    // Custom angles for 4 planets: 1 (top), 2 (left edge), 3 (bottom), 4 (right edge)
+    const angles = [
+      -Math.PI / 2,           // top (planet 1)
+      -Math.PI,               // left edge (planet 2)
+      Math.PI / 2,            // bottom (planet 3)
+      0,                      // right edge (planet 4)
+    ];
+
+    this.planets.forEach((p, i) => {
       const spr = p.sprite!;
       const label = p.label!;
 
-      let x = cx + p.rx * radius;
-      let y = cy + p.ry * radius;
+      const angle = angles[i] ?? (-Math.PI / 2 + i * ((Math.PI * 2) / this.planets.length));
+      let x = cx + Math.cos(angle) * rx;
+      let y = cy + Math.sin(angle) * ry;
 
-      if (this.USE_CLAMP) {
-        const padding = this.PLANET_PADDING;
-        const halfW = spr.displayWidth * 0.5;
-        const halfH = spr.displayHeight * 0.5;
-        x = Phaser.Math.Clamp(x, padding + halfW, w - padding - halfW);
-        y = Phaser.Math.Clamp(y, padding + halfH, h - padding - halfH);
-      }
+      // Clamp so planets don't go outside the screen
+      const halfW = spr.displayWidth * 0.5;
+      const halfH = spr.displayHeight * 0.5;
+      x = Phaser.Math.Clamp(x, padding + halfW, w - padding - halfW);
+      y = Phaser.Math.Clamp(y, padding + halfH, h - padding - halfH);
 
       spr.setPosition(Math.round(x), Math.round(y));
       label.setPosition(spr.x, spr.y - spr.displayHeight * 0.65);
