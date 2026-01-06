@@ -221,7 +221,7 @@ export default class Game extends Phaser.Scene {
 
     // World bounds / camera bounds
     cam.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
-    this.matter.world.setBounds(0, 0, map.widthInPixels, map.heightInPixels, 64, true, true, true, true);
+    this.matter.world.setBounds(0, 0, map.widthInPixels, map.heightInPixels, 64, true, true, true, false);
 
     // backup morte sotto mappa
     this.deathY = map.heightInPixels + this.DEATH_Y_MARGIN;
