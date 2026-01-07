@@ -125,6 +125,8 @@ export default class PlayerController {
   private jumpOnEnter() {
     this.sprite.setVelocityY(-12)
     this.sprite.play('player-jump')
+    this.scene.sound.play("sfx-jump", { volume: 0.8 });
+
   }
 
   private jumpOnUpdate() {

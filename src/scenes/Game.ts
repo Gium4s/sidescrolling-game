@@ -12,6 +12,8 @@ export default class Game extends Phaser.Scene {
 
   private penquin?: Phaser.Physics.Matter.Sprite;
   private playerController?: PlayerController;
+  
+  private tileset?: Phaser.Tilemaps.Tileset;
 
   // Parallax background
   private bg!: Phaser.GameObjects.TileSprite;
@@ -33,6 +35,7 @@ export default class Game extends Phaser.Scene {
   private readonly CMD_ADD = "git add game.json";
   private readonly CMD_COMMIT_BASE = 'git commit -m "level';
   private CMD_COMMIT = 'git commit -m "level 1"';
+  private readonly CMD_CLONE = "git clone https://github.com/supermariobros";
 
   // trigger (tile con proprietà)
   private terminalTriggerBody?: MatterJS.BodyType;
@@ -51,6 +54,70 @@ export default class Game extends Phaser.Scene {
   // ✅ UFO del goal (unico)
   private goalUfo?: Phaser.GameObjects.Image;
   private goalBody?: MatterJS.BodyType;
+
+  // --- TUBE SYSTEM ---
+  private tubeEnterBody?: MatterJS.BodyType;
+  private tubeExitPoint?: { x: number; y: number };
+  private tubeBusy = false;
+  private tubeInside = false;
+
+  //bloccoquestion
+  private usedQuestionTiles = new Set<string>();
+
+  private tileKey(tile: Phaser.Tilemaps.Tile) {
+  return `${tile.x},${tile.y}`;
+  }
+
+
+  private enterTube() {
+    if (!this.penquin || !this.tubeExitPoint) return;
+
+    this.tubeBusy = true;
+    this.freezePlayer();
+
+    const startX = this.penquin.x;
+    const startY = this.penquin.y;
+
+    // Animazione: scende nel tubo
+    this.tweens.add({
+      targets: this.penquin,
+      y: startY + 32,
+      scaleY: 0.1,
+      duration: 400,
+      ease: "Sine.easeIn",
+      onComplete: () => {
+        this.penquin?.setVisible(false);
+
+        // TELEPORT
+        this.penquin?.setPosition(
+          this.tubeExitPoint!.x,
+          this.tubeExitPoint!.y + 32
+        );
+
+        this.exitTube();
+      },
+    });
+  }
+
+  private exitTube() {
+    if (!this.penquin) return;
+
+    this.penquin.setVisible(true);
+    this.penquin.setScale(1.5, 0.1);
+
+    // Animazione: esce dal tubo
+    this.tweens.add({
+      targets: this.penquin,
+      y: this.penquin.y - 32,
+      scaleY: 1.5,
+      duration: 420,
+      ease: "Sine.easeOut",
+      onComplete: () => {
+        this.tubeBusy = false;
+      },
+    });
+  }
+
 
   // =========================
   // TUNING OFFSETS (QUI!)
@@ -77,6 +144,7 @@ export default class Game extends Phaser.Scene {
   private deathBodies: MatterJS.BodyType[] = []; // sensori “death-zone”
   // =========================
 
+  
   constructor() {
     super("game");
   }
@@ -124,8 +192,18 @@ export default class Game extends Phaser.Scene {
     this.load.image("bg2", "assets/bg2.png");
 
     this.load.atlas("penquin", "assets/penquin.png", "assets/penquin.json");
-    this.load.image("tiles", "assets/sheet.png");
+    this.load.spritesheet("tiles", "assets/sheet.png", {  frameWidth: 70,
+      frameHeight: 70,
+    });
     this.load.image("ufo", "assets/ufo.png");
+    this.load.spritesheet("goomba", "assets/goomba.png", {
+      frameWidth: 70,
+      frameHeight: 70,
+    });
+
+    this.load.audio("sfx-jump", "assets/sfx-jump.mp3");
+    this.load.audio("sfx-level-complete", "assets/sfx-level-complete.mp3");
+
 
     this.load.tilemapTiledJSON("tilemap", "assets/game.json");
     this.load.tilemapTiledJSON("tilemap2", "assets/game2.json");
@@ -181,15 +259,33 @@ export default class Game extends Phaser.Scene {
       return;
     }
 
+    const jumpSound = this.sound.add("sfx-jump", {
+      volume: 0.4,
+    });
+
+    const levelCompleteSound = this.sound.add("sfx-level-complete", {
+      volume: 0.6,
+    });
+
+    this.sfxJump = jumpSound;
+    this.sfxLevelComplete = levelCompleteSound;
+
+
+
     // --- Map + tileset ---
     const map = this.make.tilemap({ key: mapKey });
     const tileset = map.addTilesetImage("iceworld", "tiles");
+    
+    
 
     if (!tileset) {
       console.error(`[Game] Tileset not found. In Tiled tileset name must be "iceworld".`);
       this.createGoBackButton();
       return;
     }
+    
+    this.tileset = tileset;
+
 
     const ground = map.createLayer("ground", tileset);
     if (!ground) {
@@ -237,6 +333,59 @@ export default class Game extends Phaser.Scene {
     // (opzionale) death-zone anche da objects:
     this.createDeathZonesFromObjects(objectsLayer.objects);
 
+    //spritesheet goomba  
+    if (!this.anims.exists("goomba-walk")) {
+      this.anims.create({
+        key: "goomba-walk",
+        frames: this.anims.generateFrameNumbers("goomba", {
+          start: 0,
+          end: 3,
+        }),
+        frameRate: 6,
+        repeat: -1,
+      });
+
+      this.anims.create({
+        key: "goomba-squash",
+        frames: this.anims.generateFrameNumbers("goomba", {
+          start: 4,
+          end: 5,
+        }),
+        frameRate: 8,
+        repeat: 0,
+      });
+    }
+
+
+    // --- TUBES ---
+    const tubeEnterObj = objectsLayer.objects.find(o => o.name === "tube-enter");
+    const tubeExitObj = objectsLayer.objects.find(o => o.name === "tube-exit");
+
+    if (tubeEnterObj && tubeExitObj) {
+      const ex = tubeEnterObj.x ?? 0;
+      const ey = tubeEnterObj.y ?? 0;
+      const ew = tubeEnterObj.width ?? 32;
+      const eh = tubeEnterObj.height ?? 16;
+
+      this.tubeEnterBody = this.matter.add.rectangle(
+        ex + ew / 2,
+        ey + eh / 2,
+        ew,
+        eh,
+        {
+          isStatic: true,
+          isSensor: true,
+          label: "tube-enter",
+        }
+      );
+
+      this.tubeExitPoint = {
+        x: (tubeExitObj.x ?? 0) + (tubeExitObj.width ?? 0) / 2,
+        y: tubeExitObj.y ?? 0,
+      };
+    }
+
+
     // --- Spawn player ---
     const spawnObj = objectsLayer.objects.find((o) => o.name === "penquin-spawn");
     if (!spawnObj) {
@@ -259,6 +408,31 @@ export default class Game extends Phaser.Scene {
     this.playerController = new PlayerController(this, this.penquin, this.cursors);
     cam.startFollow(this.penquin, true);
     this._basePlayerY = this.penquin.y;
+
+    // --- GOOMBAS ---
+    const goombas = objectsLayer.objects.filter(o => o.name === "enemy-goomba");
+
+    for (const g of goombas) {
+      const x = (g.x ?? 0) + (g.width ?? 70) / 2;
+      const y = (g.y ?? 0) + (g.height ?? 70) / 2;
+
+      const enemy = this.matter.add
+        .sprite(x, y, "goomba", 0)
+        .setFixedRotation()
+        .setFriction(0)
+        .setBounce(0);
+
+      enemy.play("goomba-walk");
+
+      enemy.setData("type", "goomba");
+      enemy.setData("alive", true);
+      enemy.setData("startX", x);
+      enemy.setData("dir", -1);
+      enemy.setData("range", 3 * 70); // 8 tile
+      enemy.setVelocityX(-1.2);
+
+      this.enemies.push(enemy);
+    }
 
     // --- Intro drop (solo se arrivi da git init) ---
     if (this.introDrop) {
@@ -332,6 +506,55 @@ export default class Game extends Phaser.Scene {
             return;
           }
         }
+
+        // --- BRICK BOUNCE ---
+        const tileBody =
+          (a !== playerBody && (a as any).gameObject?.tile) ? a :
+          (b !== playerBody && (b as any).gameObject?.tile) ? b :
+          null;
+
+        if (tileBody) {
+          this.tryBrickBounce(playerBody);
+        }
+
+        // --- GOOMBA COLLISION ---
+        for (const enemy of this.enemies) {
+          const eb = enemy.body as MatterJS.BodyType;
+          if (!eb || !enemy.getData("alive")) continue;
+
+          const hitEnemy =
+            (a === eb && b === playerBody) ||
+            (b === eb && a === playerBody);
+
+          if (!hitEnemy) continue;
+
+          const py = playerBody.bounds.max.y; // piedi player
+          const ey = eb.position.y;
+
+          // SALTATO SOPRA → GOOMBA MUORE
+          if (py < ey - 6) {
+            enemy.setData("alive", false);
+            enemy.setVelocity(0, 0);
+            enemy.setStatic(true);
+
+            this.tweens.add({
+              targets: enemy,
+              scaleY: 0.2,
+              duration: 120,
+              onComplete: () => enemy.destroy()
+            });
+
+            this.penquin?.setVelocityY(-6);
+            return;
+          }
+
+          // TOCCATO DI LATO → PLAYER MUORE
+          this.onPlayerDied();
+          return;
+        }
+
+
+
       }
     });
 
@@ -360,6 +583,40 @@ export default class Game extends Phaser.Scene {
       this.playerController?.update(dt);
     }
 
+    
+    // --- GOOMBA PATROL (AVANTI ↔ DIETRO) ---
+    for (const e of this.enemies) {
+      if (!e.getData("alive")) continue;
+
+      const startX = e.getData("startX") as number;
+      const range = e.getData("range") as number;
+      let dir = e.getData("dir") as number;
+
+      const dist = e.x - startX;
+
+      // limite destro
+      if (dist >= range && dir > 0) {
+        dir = -1;
+        e.setData("dir", dir);
+        e.setFlipX(false);
+      }
+
+      // limite sinistro
+      if (dist <= -range && dir < 0) {
+        dir = 1;
+        e.setData("dir", dir);
+        e.setFlipX(true);
+      }
+
+      // movimento costante
+      e.setVelocityX(dir * 1.2);
+
+    }
+
+
+
+
+
     // Parallax X
     this.bg.tilePositionX = Math.floor(this.cameras.main.scrollX * 0.2);
 
@@ -382,11 +639,40 @@ export default class Game extends Phaser.Scene {
       }
     }
 
+    // --- TUBE AUTO ENTER (NO INPUT) ---
+    if (
+      this.tubeEnterBody &&
+      this.penquin &&
+      !this.tubeBusy &&
+      !this.dead &&
+      !this.levelEnding
+    ) {
+      const pb = this.penquin.body as MatterJS.BodyType;
+      const inside = this.isPlayerInsideRectBody(pb, this.tubeEnterBody);
+
+      // entra una sola volta quando ci sale sopra
+      if (inside && !this.tubeInside) {
+        this.tubeInside = true;
+        this.enterTube();
+      }
+
+      // reset quando esce dalla zona
+      if (!inside && this.tubeInside) {
+        this.tubeInside = false;
+      }
+    }
+
+
     // backup: se cade sotto mappa muore
     if (!this.dead && !this.levelEnding && this.penquin && this.penquin.y > this.deathY) {
       this.onPlayerDied();
     }
   }
+
+
+  private sfxJump!: Phaser.Sound.BaseSound;
+  private sfxLevelComplete!: Phaser.Sound.BaseSound;
+
 
   private freezePlayer() {
     if (!this.penquin) return;
@@ -396,6 +682,95 @@ export default class Game extends Phaser.Scene {
     this.penquin.setVelocity(0, 0);
     this.penquin.setAngularVelocity(0);
   }
+
+  private tryQuestionBlock(tile: Phaser.Tilemaps.Tile) {
+    const key = this.tileKey(tile);
+    if (this.usedQuestionTiles.has(key)) return;
+
+    const props = tile.properties as any;
+    if (!props?.question) return;
+
+    this.usedQuestionTiles.add(key);
+
+    const worldX = tile.getCenterX();
+    const worldY = tile.getCenterY();
+
+    // 🪙 MONETA
+    const coin = this.add
+      .sprite(worldX, worldY - 16, "tiles", this.getCoinFrame())
+      .setDepth(1200);
+
+    this.tweens.add({
+      targets: coin,
+      y: worldY - 64,
+      alpha: 0.8,
+      duration: 420,
+      ease: "Sine.easeOut",
+      onComplete: () => coin.destroy(),
+    });
+    // ⬜ CAMBIA BLOCCO IN "VUOTO"
+    if (typeof props.usedFrame === "number") {
+    tile.index = props.usedFrame + (this.tileset?.firstgid ?? 1);
+    tile.setCollision(false, false, false, false);
+    }
+  }
+
+  private getCoinFrame() {
+  // indice DELLO SPRITESHEET (non GID)
+      return 73 - (this.tileset?.firstgid ?? 1);
+  }
+
+
+  private tryBrickBounce(playerBody: MatterJS.BodyType) {
+    if (!this.groundLayer || !this.penquin) return;
+
+    const map = this.groundLayer.tilemap;
+    const tw = map.tileWidth;
+    const th = map.tileHeight;
+
+    // testa player
+    const headX = playerBody.position.x;
+    const headY = playerBody.bounds.min.y - 2;
+
+    const tileX = Math.floor(headX / tw);
+    const tileY = Math.floor(headY / th);
+
+    const tile = this.groundLayer.getTileAt(tileX, tileY);
+    if (!tile) return;
+
+    const props = tile.properties as any;
+
+    // deve essere brick O question
+    if (!props?.brick && !props?.question) return;
+
+    // 👉 se è question block, gestisci la moneta
+    if (props?.question) {
+      this.tryQuestionBlock(tile);
+    }
+
+    // 👉 BLOCCA rimbalzo fisico del player
+    this.penquin.setVelocityY(0);
+
+    // 👉 bounce VISIVO (vale per entrambi)
+    const worldX = tile.getCenterX();
+    const worldY = tile.getCenterY();
+    const frame = tile.index - (this.tileset?.firstgid ?? 1);
+
+    const bounce = this.add
+      .sprite(worldX, worldY, "tiles", frame)
+      .setOrigin(0.5)
+      .setDepth(1000)
+      .setScrollFactor(1);
+
+    this.tweens.add({
+      targets: bounce,
+      y: worldY - 4,
+      duration: 60,
+      yoyo: true,
+      ease: "Sine.easeOut",
+      onComplete: () => bounce.destroy(),
+    });
+  }aa
 
   // -------------------------
   // ✅ RESET TASK QUANDO MUORI
@@ -538,6 +913,7 @@ export default class Game extends Phaser.Scene {
   private restartLevel() {
     // ✅ IMPORTANTISSIMO: se muori, devi rifare la task
     this.resetGitTaskForThisLevel();
+    this.usedQuestionTiles.clear();
 
     this.deathOverlay?.destroy();
     this.deathOverlay = undefined;
@@ -574,6 +950,11 @@ export default class Game extends Phaser.Scene {
   // -------------------------
   // CUTSCENES
   // -------------------------
+  // --- ENEMIES ---
+  private enemies: Phaser.Physics.Matter.Sprite[] = [];
+
+
+
   private playIntroDrop(spawnX: number, spawnY: number) {
     if (!this.penquin) return;
     if (this.introPlayerFrozen) return;
@@ -616,6 +997,8 @@ export default class Game extends Phaser.Scene {
   private playUfoExitCutscene(ufoX: number, ufoY: number) {
     if (this.levelEnding || this.dead) return;
     this.levelEnding = true;
+
+    this.sound.play("sfx-level-complete", { volume: 0.6 });
 
     if (!this.penquin) {
       this.onLevelComplete();
@@ -811,7 +1194,7 @@ export default class Game extends Phaser.Scene {
     this.input.keyboard?.on("keydown", this.onTerminalKeyDown, this);
   }
 
-  private renderTerminalStep() {
+    private renderTerminalStep() {
     if (!this.terminalContainer) return;
 
     const objective: Phaser.GameObjects.Text = (this.terminalContainer as any).__objective;
@@ -821,6 +1204,21 @@ export default class Game extends Phaser.Scene {
 
     feedback.setText("");
 
+    // 🔹 LIVELLO 2 → SOLO GIT CLONE
+    if (this.level === 2) {
+      objective.setText("Obiettivo: clona il repository.");
+      explain.setText(
+        "Usa git clone per copiare un repository remoto sul tuo computer."
+      );
+      cmd.setText(`> ${this.CMD_CLONE}`);
+      cmd.setColor("#00ff6a");
+
+      this.terminalInput = "";
+      this.refreshTerminalInput();
+      return;
+    }
+
+    // 🔹 LIVELLO 1 (come prima)
     if (this.terminalStep === 1) {
       objective.setText(`Obiettivo: git add (staging).`);
       explain.setText(
@@ -840,6 +1238,7 @@ export default class Game extends Phaser.Scene {
     this.terminalInput = "";
     this.refreshTerminalInput();
   }
+
 
   private onTerminalKeyDown(e: KeyboardEvent) {
     if (!this.terminalOpen) return;
@@ -889,6 +1288,34 @@ export default class Game extends Phaser.Scene {
       return;
     }
 
+
+        // Handle "Dead" keys (modifier keys for accents/quotes)
+    // Use e.key if it's a single character, otherwise use e.code for common symbols
+    if (e.key === "Dead") {
+      // Try to get the character from e.code and shift state
+      // e.code examples: "Quote", "Backquote", "BracketLeft", "BracketRight", "Digit6" (for ^)
+      // We'll handle the most common ones for quotes and caret
+      let char = "";
+      switch (e.code) {
+        case "Quote":
+          char = e.shiftKey ? '"' : "'";
+          break;
+        case "Backquote":
+          char = "`";
+          break;
+        case "Digit6":
+          if (e.shiftKey) char = "^";
+          break;
+        // Add more cases as needed for your keyboard layout
+      }
+      if (char) {
+        this.terminalInput += char;
+        this.refreshTerminalInput();
+      }
+      return;
+    }
+
+
     if (e.key.length === 1) {
       this.terminalInput += e.key;
       this.refreshTerminalInput();
@@ -907,6 +1334,27 @@ export default class Game extends Phaser.Scene {
     const feedback: Phaser.GameObjects.Text | undefined = this.terminalContainer
       ? (this.terminalContainer as any).__feedback
       : undefined;
+
+
+    // 🔹 LIVELLO 2 → git clone
+    if (this.level === 2) {
+      if (typed === this.CMD_CLONE) {
+        feedback?.setColor("#00ff6a");
+        feedback?.setText("OK ✅ Repository clonato!");
+
+        this.completeGitFileTask();
+        this.spawnClonePlayer();
+
+        this.time.delayedCall(500, () => this.closeTerminal());
+        return;
+      }
+
+      feedback?.setColor("#ff4d4d");
+      feedback?.setText(`Comando errato. Scrivi: ${this.CMD_CLONE}`);
+      return;
+    }
+
+    // 🔹 LIVELLO 1 → git add + git commit
 
     if (this.terminalStep === 1) {
       if (typed === this.CMD_ADD) {
@@ -981,12 +1429,35 @@ export default class Game extends Phaser.Scene {
 
       this.terminalTriggerBody = body;
     }
-  private isPlayerInsideRectBody(player: MatterJS.BodyType, rect: MatterJS.BodyType) {
+
+  private spawnClonePlayer() {
+  const mapKey = `tilemap${this.level}`;
+  const map = this.make.tilemap({ key: mapKey });
+  const objectsLayer = map.getObjectLayer("objects");
+  if (!objectsLayer || !this.penquin) return;
+
+  const spawn = objectsLayer.objects.find(o => o.name === "penquin-spawn clone");
+  if (!spawn) return;
+
+  const x = (spawn.x ?? 0) + (spawn.width ?? 0) / 2;
+  const y = spawn.y ?? 0;
+
+  this.penquin.setPosition(x, y + this.PLAYER_SPAWN_Y_OFFSET);
+}
+
+
+
+    private isPlayerInsideRectBody(player: MatterJS.BodyType, rect: MatterJS.BodyType) {
     const px = player.position.x;
-    const py = player.position.y;
+
+    // ⬇️ piedi del player (non il centro)
+    const py = player.bounds.max.y;
+
     const b = rect.bounds;
+
     return px >= b.min.x && px <= b.max.x && py >= b.min.y && py <= b.max.y;
   }
+
 
   private gitFileKey() {
     return `lvl${this.level}_git_file_completed`;
@@ -1043,6 +1514,8 @@ export default class Game extends Phaser.Scene {
   private onLevelComplete() {
     const currentUnlocked = (this.registry.get("unlocked") as number) ?? 1;
     const nextUnlocked = Math.max(currentUnlocked, this.level + 1);
+    
+    this.sfxLevelComplete.play();
 
     this.registry.set("unlocked", nextUnlocked);
     localStorage.setItem("unlocked", String(nextUnlocked));
