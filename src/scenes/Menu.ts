@@ -24,6 +24,9 @@ export default class Menu extends Phaser.Scene {
   private creditsNameRows: Phaser.GameObjects.Container[] = [];
   private creditsTweens: Phaser.Tweens.Tween[] = [];
 
+  private creditsImage?: Phaser.GameObjects.Image;
+
+
   constructor() {
     super("menu");
   }
@@ -32,6 +35,10 @@ export default class Menu extends Phaser.Scene {
     this.load.setPath("assets/");
     this.load.image("menu", "menu.png");
     this.load.image("git", "git.png");
+    this.load.image("credits-image", "credits-image.png");
+    this.load.image("options-image", "options-image.png");
+
+
 
     // ✅ audio (stanno in assets/)
     this.load.audio("sfx_click", "computer-mouse-click-352734.mp3");
@@ -52,7 +59,7 @@ export default class Menu extends Phaser.Scene {
       { key: "play", label: "Gioca", enabled: true },
       { key: "levels", label: "Livelli", enabled: true },
       { key: "credits", label: "Credits", enabled: true },
-      { key: "options", label: "Opzioni", enabled: false },
+      { key: "options", label: "Opzioni", enabled: true },
     ];
 
     const startX = 120;
@@ -82,9 +89,7 @@ export default class Menu extends Phaser.Scene {
         if (item.key === "play") this.onPlay();
         if (item.key === "levels") this.onLevels();
         if (item.key === "credits") this.openCredits();
-        if (item.key === "options") {
-          // in futuro: this.onOptions();
-        }
+        if (item.key === "options") this.onOptions();
       });
     });
 
@@ -197,7 +202,7 @@ export default class Menu extends Phaser.Scene {
 
     // pannello
     const panelW = Math.floor(w * 0.72);
-    const panelH = Math.floor(h * 0.7);
+    const panelH = Math.floor(h * 0.82);
 
     this.creditsPanel = this.add
       .rectangle(w * 0.5, h * 0.5, panelW, panelH, 0x111111, 0.95)
@@ -236,10 +241,10 @@ export default class Menu extends Phaser.Scene {
     );
 
     // nomi in colonna, centrati, lettere colorate MA riga dritta
-    const names = ["Maggi Antonio", "Giulia Masino", "Ferrara Tommaso", "Papangelo Maddalena"];
+    const names = ["Maggi Antonio", "Masino Giulia", "Ferrara Tommaso", "Papangelo Maddalena"];
     const colors = ["#FF6B6B", "#FFD93D", "#6BCB77", "#4D96FF", "#C77DFF"];
 
-    const namesStartY = h * 0.5 - 10;
+    const namesStartY = h * 0.5 - 190;
     const rowGap = 62;
 
     this.creditsNameRows = names.map((name, row) => {
@@ -286,6 +291,32 @@ export default class Menu extends Phaser.Scene {
       return rowContainer;
     });
 
+   
+
+
+    // =========================
+    // CREA IMMAGINE CREDITS (UNA VOLTA SOLA)
+    // =========================
+    this.creditsImage = this.add
+      .image(0, 0, "credits-image")
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(9992)
+      .setScale(0.6); 
+      
+    // =========================
+    // POSIZIONE IMMAGINE CREDITS (DENTRO IL PANNELLO)
+    // =========================
+    if (this.creditsImage) {
+      const panelTopY = h * 0.5 - panelH / 2;
+
+      this.creditsImage.setPosition(
+        w * 0.5,
+        panelTopY + 570 // ⬅️ QUI regoli la distanza dall’alto del pannello
+      );
+    }
+
+  
     // bottone indietro
     this.creditsBack = this.add
       .text(w * 0.5, h * 0.5 + panelH / 2 - 70, "← Indietro", {
@@ -319,22 +350,27 @@ export default class Menu extends Phaser.Scene {
 
     this.creditsOverlay?.setSize(w, h);
 
+    
+
     if (!this.creditsPanel || !this.creditsTitle) return;
 
     const panelW = Math.floor(w * 0.72);
-    const panelH = Math.floor(h * 0.7);
+    const panelH = Math.floor(h * 0.82);
+
+  
 
     this.creditsPanel.setPosition(w * 0.5, h * 0.5).setSize(panelW, panelH);
     this.creditsTitle.setPosition(w * 0.5, h * 0.5 - panelH / 2 + 80);
 
     this.positionCreditsLogo();
 
-    const namesStartY = h * 0.5 - 10;
+    const namesStartY = h * 0.5 - 190
     const rowGap = 62;
 
     this.creditsNameRows.forEach((row, i) => {
       row.setPosition(w * 0.5, namesStartY + i * rowGap);
     });
+
 
     this.creditsBack?.setPosition(w * 0.5, h * 0.5 + panelH / 2 - 70);
   }
@@ -384,6 +420,10 @@ export default class Menu extends Phaser.Scene {
 
     this.creditsOverlay?.destroy();
     this.creditsOverlay = undefined;
+
+    this.creditsImage?.destroy();
+    this.creditsImage = undefined;
+
   }
 
   // =========================
@@ -409,4 +449,16 @@ export default class Menu extends Phaser.Scene {
     await document.fonts.load('16px "PixelFont"');
     await document.fonts.ready;
   }
+
+private onOptions() {
+  this.playClick();
+
+  // NON fermare il menu
+  this.scene.launch("options");
+  this.scene.bringToTop("options");
+}
+
+
+
+
 }

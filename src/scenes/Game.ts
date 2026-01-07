@@ -201,6 +201,11 @@ export default class Game extends Phaser.Scene {
       frameHeight: 70,
     });
 
+    this.load.image("options-image", "options-image.png");
+
+
+
+
     this.load.audio("sfx-jump", "assets/sfx-jump.mp3");
     this.load.audio("sfx-level-complete", "assets/sfx-level-complete.mp3");
 
@@ -239,6 +244,11 @@ export default class Game extends Phaser.Scene {
       if (this.deathOverlay) this.deathOverlay.setSize(size.width, size.height);
       if (this.deathText) this.deathText.setPosition(size.width * 0.5, this.getDeathMessageScreenY());
     });
+
+
+    const audioOn = localStorage.getItem("audio") !== "off";
+    this.sound.mute = !audioOn;
+
 
     // --- choose correct tilemap key ---
     const mapKey = this.level === 1 ? "tilemap" : `tilemap${this.level}`;
