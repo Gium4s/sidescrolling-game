@@ -498,8 +498,6 @@
    </properties>
   </tile>
  </tileset>
- <tileset firstgid="99" source="ghameee.tsx"/>
- <tileset firstgid="99" source="hhhh.tsx"/>
  <layer id="1" name="ground" width="50" height="20">
   <data encoding="csv">
 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,15,15,15,15,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
