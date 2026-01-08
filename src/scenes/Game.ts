@@ -36,6 +36,8 @@ export default class Game extends Phaser.Scene {
   private readonly CMD_COMMIT_BASE = 'git commit -m "level';
   private CMD_COMMIT = 'git commit -m "level 1"';
   private readonly CMD_CLONE = "git clone https://github.com/supermariobros";
+  private readonly CMD_PULL = "git pull";
+
 
   // trigger (tile con proprietà)
   private terminalTriggerBody?: MatterJS.BodyType;
@@ -60,6 +62,14 @@ export default class Game extends Phaser.Scene {
   private tubeExitPoint?: { x: number; y: number };
   private tubeBusy = false;
   private tubeInside = false;
+
+
+  // --- PORTAL SYSTEM ---
+  private portalEnterBody?: MatterJS.BodyType;
+  private portalExitPoint?: { x: number; y: number };
+  private portalBusy = false;
+  private portalInside = false;
+
 
   //bloccoquestion
   private usedQuestionTiles = new Set<string>();
@@ -118,6 +128,40 @@ export default class Game extends Phaser.Scene {
     });
   }
 
+  private enterPortal() {
+  if (!this.penquin || !this.portalExitPoint) return;
+
+  this.portalBusy = true;
+  this.freezePlayer();
+
+  this.tweens.add({
+    targets: this.penquin,
+    alpha: 0,
+    duration: 250,
+    onComplete: () => {
+      this.penquin?.setPosition(
+        this.portalExitPoint!.x,
+        this.portalExitPoint!.y
+      );
+      this.exitPortal();
+    },
+  });
+}
+
+  private exitPortal() {
+    if (!this.penquin) return;
+
+    this.tweens.add({
+      targets: this.penquin,
+      alpha: 1,
+      duration: 250,
+      onComplete: () => {
+        this.portalBusy = false;
+      },
+    });
+  }
+
+
 
   // =========================
   // TUNING OFFSETS (QUI!)
@@ -143,6 +187,54 @@ export default class Game extends Phaser.Scene {
 
   private deathBodies: MatterJS.BodyType[] = []; // sensori “death-zone”
   // =========================
+
+
+  // --- HINT TILE ---
+  private hintTiles: Phaser.Tilemaps.Tile[] = [];
+  private hintActive = false;
+  private hintBox?: Phaser.GameObjects.Container;
+
+  // --- DARKNESS (LEVEL 3) ---
+  private darkness?: Phaser.GameObjects.Graphics;
+  private lightMask?: Phaser.GameObjects.Graphics;
+  private isDarkLevel = false;
+
+
+  private enableDarkness() {
+    this.isDarkLevel = true;
+
+    const cam = this.cameras.main;
+
+    // overlay nero
+    this.darkness = this.add.graphics();
+    this.darkness
+      .fillStyle(0x000000, 0.95)
+      .fillRect(0, 0, cam.width, cam.height)
+      .setScrollFactor(0)
+      .setDepth(9000);
+
+    // 👉 GRAFICA DELLA LUCE (INVISIBILE)
+    this.lightMask = this.add.graphics();
+    this.lightMask.setVisible(false);
+
+    // 👉 MASK: il bianco della lightMask buca il nero
+    const mask = this.lightMask.createGeometryMask();
+    mask.invertAlpha = true; // 🔥 QUESTA È LA CHIAVE
+    this.darkness.setMask(mask);
+
+    // resize safe
+    this.scale.on(Phaser.Scale.Events.RESIZE, (size: Phaser.Structs.Size) => {
+      this.darkness?.clear();
+      this.darkness
+        ?.fillStyle(0x000000, 0.95)
+        .fillRect(0, 0, size.width, size.height);
+    });
+  }
+
+
+
+
+
 
   
   constructor() {
@@ -190,6 +282,7 @@ export default class Game extends Phaser.Scene {
     // background per livelli
     this.load.image("bg", "assets/bg.png");
     this.load.image("bg2", "assets/bg2.png");
+    this.load.image("bg3", "assets/bg3.png");
 
     this.load.atlas("penquin", "assets/penquin.png", "assets/penquin.json");
     this.load.spritesheet("tiles", "assets/sheet.png", {  frameWidth: 70,
@@ -318,6 +411,14 @@ export default class Game extends Phaser.Scene {
       this.removeGitFileTiles();
     }
 
+    // --- raccogli i tile hint="light" ---
+    this.hintTiles = [];
+    ground.forEachTile((tile) => {
+      const p = tile?.properties as any;
+      if (p?.hint === "light") this.hintTiles.push(tile);
+    });
+
+
     // collision per i tile solidi
     ground.setCollisionByProperty({ collides: true });
     this.matter.world.convertTilemapLayer(ground);
@@ -395,6 +496,35 @@ export default class Game extends Phaser.Scene {
       };
     }
 
+    // --- PORTAL ---
+    const portalEnterObj = objectsLayer.objects.find(o => o.name === "portal-enter");
+    const portalExitObj = objectsLayer.objects.find(o => o.name === "portal-exit");
+
+    if (portalEnterObj && portalExitObj) {
+      const ex = portalEnterObj.x ?? 0;
+      const ey = portalEnterObj.y ?? 0;
+      const ew = portalEnterObj.width ?? 32;
+      const eh = portalEnterObj.height ?? 32;
+
+      this.portalEnterBody = this.matter.add.rectangle(
+        ex + ew / 2,
+        ey + eh / 2,
+        ew,
+        eh,
+        {
+          isStatic: true,
+          isSensor: true,
+          label: "portal-enter",
+        }
+      );
+
+      this.portalExitPoint = {
+        x: (portalExitObj.x ?? 0) + (portalExitObj.width ?? 0) / 2,
+        y: portalExitObj.y ?? 0,
+      };
+    }
+
+
 
     // --- Spawn player ---
     const spawnObj = objectsLayer.objects.find((o) => o.name === "penquin-spawn");
@@ -409,11 +539,13 @@ export default class Game extends Phaser.Scene {
     const sw = spawnObj.width ?? 0;
 
     this.penquin = this.matter.add
-      .sprite(sx + sw * 0.5, sy, "penquin")
-      .setOrigin(0.5, 0.365)
-      .setScale(1.5)
-      .setFixedRotation()
-      .setFriction(0);
+    .sprite(sx + sw * 0.5, sy, "penquin")
+    .setOrigin(0.5, 0.365)
+    .setScale(1.5)
+    .setFixedRotation()
+    .setFriction(0)
+    .setDepth(9500); // ✅ TUTTO NELLA CATENA
+
 
     this.playerController = new PlayerController(this, this.penquin, this.cursors);
     cam.startFollow(this.penquin, true);
@@ -476,6 +608,14 @@ export default class Game extends Phaser.Scene {
     } else {
       console.warn("[Game] ufo-goal not found in objects layer.");
     }
+
+
+    // --- DARK LEVEL (LEVEL 3) ---
+    if (this.level === 3 && !this.isGitFileTaskCompleted()) {
+      this.enableDarkness();
+    }
+
+
 
     // --- TERMINAL TRIGGER VIA TILE PROPERTY ---
     if (!this.isGitFileTaskCompleted()) {
@@ -564,7 +704,6 @@ export default class Game extends Phaser.Scene {
         }
 
 
-
       }
     });
 
@@ -593,7 +732,50 @@ export default class Game extends Phaser.Scene {
       this.playerController?.update(dt);
     }
 
-    
+
+    // --- HINT TILE CHECK ---
+    if (
+      this.level === 3 &&
+      this.isDarkLevel &&
+      this.penquin &&
+      this.groundLayer
+    ) {
+      const tw = this.groundLayer.tilemap.tileWidth;
+      const th = this.groundLayer.tilemap.tileHeight;
+
+      const px = Math.floor(this.penquin.x / tw);
+      const py = Math.floor(this.penquin.y / th);
+
+      const tile = this.groundLayer.getTileAt(px, py);
+      const isHintTile = tile && (tile.properties as any)?.hint === "light";
+
+      // 👉 ENTRA nel tile
+      if (isHintTile && !this.hintActive) {
+        this.hintActive = true;
+        this.showLightHint();
+      }
+
+      // 👉 ESCE dal tile
+      if (!isHintTile && this.hintActive) {
+        this.hintActive = false;
+      }
+
+
+      // --- PLAYER LIGHT AURA ---
+        if (this.isDarkLevel && this.penquin && this.lightMask) {
+          this.lightMask.clear();
+
+          const radius = 80; // 👈 dimensione aura (prova 120–180)
+          const x = this.penquin.x;
+          const y = this.penquin.y;
+
+          this.lightMask.fillStyle(0xffffff, 1);
+          this.lightMask.fillCircle(x, y, radius);
+        }
+
+    }
+
+
     // --- GOOMBA PATROL (AVANTI ↔ DIETRO) ---
     for (const e of this.enemies) {
       if (!e.getData("alive")) continue;
@@ -672,13 +854,44 @@ export default class Game extends Phaser.Scene {
       }
     }
 
+    // --- PORTAL AUTO ENTER ---
+    if (
+      this.portalEnterBody &&
+      this.penquin &&
+      !this.portalBusy &&
+      !this.dead &&
+      !this.levelEnding
+    ) {
+      const pb = this.penquin.body as MatterJS.BodyType;
+      const px = pb.position.x;
+      const py = pb.position.y; // 👈 CENTRO, non piedi
+
+      const b = this.portalEnterBody.bounds;
+      const inside =
+        px >= b.min.x &&
+        px <= b.max.x &&
+        py >= b.min.y &&
+        py <= b.max.y;
+
+
+      if (inside && !this.portalInside) {
+        this.portalInside = true;
+        this.enterPortal();
+      }
+
+      if (!inside && this.portalInside) {
+        this.portalInside = false;
+      }
+    }
+
+
 
     // backup: se cade sotto mappa muore
     if (!this.dead && !this.levelEnding && this.penquin && this.penquin.y > this.deathY) {
       this.onPlayerDied();
     }
-  }
 
+   }
 
   private sfxJump!: Phaser.Sound.BaseSound;
   private sfxLevelComplete!: Phaser.Sound.BaseSound;
@@ -1094,6 +1307,62 @@ export default class Game extends Phaser.Scene {
     this.terminalContainer.setPosition(Math.floor(w * 0.5), Math.floor(h * 0.36));
   }
 
+  private showLightHint() {
+
+    this.hintBox?.destroy();
+    this.hintBox = undefined;
+
+      const cam = this.cameras.main;
+      const w = cam.width;
+      const h = cam.height;
+
+      const boxW = Math.min(520, w * 0.8);
+      const boxH = 90;
+
+      const box = this.add.rectangle(0, 0, boxW, boxH, 0x000000, 0.8)
+        .setStrokeStyle(2, 0xffffff, 0.25);
+
+
+      const text = this.add.text(0, 0,
+        "Trova un modo per vedere meglio\nin questo livello buio…",
+        {
+          fontFamily: "Arial",
+          fontSize: "22px",
+          color: "#ffffff",
+          align: "center",
+          wordWrap: { width: boxW - 32 }
+        }
+      ).setOrigin(0.5);
+
+      this.hintBox = this.add.container(
+        w * 0.5,
+        Math.max(80, h * 0.15),
+        [box, text]
+      );
+
+      this.hintBox.setScrollFactor(0);
+      this.hintBox.setDepth(99997);
+
+      // fade-in
+      this.hintBox.alpha = 0;
+      this.tweens.add({
+        targets: this.hintBox,
+        alpha: 1,
+        duration: 300,
+        ease: "Power2"
+      });
+
+      // auto-hide dopo un po’
+      this.time.delayedCall(2600, () => {
+        this.tweens.add({
+          targets: this.hintBox,
+          alpha: 0,
+          duration: 100,
+          onComplete: () => this.hintBox?.destroy()
+        });
+      });
+    }
+
   private buildTerminal() {
     this.terminalContainer?.destroy(true);
 
@@ -1214,6 +1483,24 @@ export default class Game extends Phaser.Scene {
 
     feedback.setText("");
 
+
+
+    // 🔹 LIVELLO 3 → git pull (rimuove il buio)
+    if (this.level === 3) {
+      objective.setText("Obiettivo: aggiorna il repository.");
+      explain.setText(
+        "Il repository remoto contiene nuovi dati. Usa git pull per sincronizzare e rendere visibile il mondo."
+      );
+      cmd.setText(`> ${this.CMD_PULL}`);
+      cmd.setColor("#00ff6a");
+
+      this.terminalInput = "";
+      this.refreshTerminalInput();
+      return;
+    }
+
+
+
     // 🔹 LIVELLO 2 → SOLO GIT CLONE
     if (this.level === 2) {
       objective.setText("Obiettivo: clona il repository.");
@@ -1298,34 +1585,6 @@ export default class Game extends Phaser.Scene {
       return;
     }
 
-
-        // Handle "Dead" keys (modifier keys for accents/quotes)
-    // Use e.key if it's a single character, otherwise use e.code for common symbols
-    if (e.key === "Dead") {
-      // Try to get the character from e.code and shift state
-      // e.code examples: "Quote", "Backquote", "BracketLeft", "BracketRight", "Digit6" (for ^)
-      // We'll handle the most common ones for quotes and caret
-      let char = "";
-      switch (e.code) {
-        case "Quote":
-          char = e.shiftKey ? '"' : "'";
-          break;
-        case "Backquote":
-          char = "`";
-          break;
-        case "Digit6":
-          if (e.shiftKey) char = "^";
-          break;
-        // Add more cases as needed for your keyboard layout
-      }
-      if (char) {
-        this.terminalInput += char;
-        this.refreshTerminalInput();
-      }
-      return;
-    }
-
-
     if (e.key.length === 1) {
       this.terminalInput += e.key;
       this.refreshTerminalInput();
@@ -1344,6 +1603,27 @@ export default class Game extends Phaser.Scene {
     const feedback: Phaser.GameObjects.Text | undefined = this.terminalContainer
       ? (this.terminalContainer as any).__feedback
       : undefined;
+
+
+      // 🔹 LIVELLO 3 → git pull
+      if (this.level === 3) {
+        if (typed === this.CMD_PULL) {
+          feedback?.setColor("#00ff6a");
+          feedback?.setText("✓ Repository aggiornato\n✓ Visibilità ripristinata");
+
+          this.completeGitFileTask();
+          this.revealWorld();
+
+          this.time.delayedCall(600, () => this.closeTerminal());
+          return;
+        }
+
+        feedback?.setColor("#ff4d4d");
+        feedback?.setText(`Comando errato. Scrivi: ${this.CMD_PULL}`);
+        return;
+      }
+
+
 
 
     // 🔹 LIVELLO 2 → git clone
@@ -1497,6 +1777,32 @@ export default class Game extends Phaser.Scene {
     }
     this.gitFileTiles = [];
   }
+  
+
+  private revealWorld() {
+  if (!this.darkness) return;
+
+    this.isDarkLevel = false;
+
+    this.tweens.add({
+      targets: this.darkness,
+      alpha: 0,
+      duration: 800,
+      ease: "Power2",
+      onComplete: () => {
+        this.darkness?.destroy();
+        this.lightMask?.destroy();
+
+        this.darkness = undefined;
+        this.lightMask = undefined;
+
+      },
+    });
+  }
+
+
+
+
 
   private createGoBackButton() {
     const btn = this.add
@@ -1532,4 +1838,11 @@ export default class Game extends Phaser.Scene {
 
     this.scene.start("level-select", { unlocked: nextUnlocked });
   }
+
+  
+
+
+
+
+
 }
