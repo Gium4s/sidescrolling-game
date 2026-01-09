@@ -200,6 +200,12 @@ export default class Game extends Phaser.Scene {
   private lightMask?: Phaser.GameObjects.Graphics;
   private isDarkLevel = false;
 
+  // --- LEVEL 4: BRANCH SYSTEM ---
+  private createdBranches = new Set<string>();
+  private mergedBranches = new Set<string>();
+  private previewBranch: string | null = null;
+
+
 
   private enableDarkness() {
     this.isDarkLevel = true;
@@ -286,6 +292,7 @@ export default class Game extends Phaser.Scene {
     this.load.image("bg", "assets/bg.png");
     this.load.image("bg2", "assets/bg2.png");
     this.load.image("bg3", "assets/bg3.png");
+    this.load.image("bg4", "assets/bg4.png");
 
     this.load.atlas("penquin", "assets/penquin.png", "assets/penquin.json");
     this.load.spritesheet("tiles", "assets/sheet.png", {  frameWidth: 70,
@@ -404,6 +411,14 @@ export default class Game extends Phaser.Scene {
     }
 
     this.groundLayer = ground;
+
+    if (this.level === 4) {
+      ground.forEachTile(t => {
+        const p = t?.properties as any;
+        if (p?.branch) t.setVisible(false);
+      });
+    }
+
 
     // --- raccogli i tile git="file" ---
     this.gitFileTiles = [];
@@ -623,11 +638,17 @@ export default class Game extends Phaser.Scene {
 
 
 
-    // --- TERMINAL TRIGGER VIA TILE PROPERTY ---
-    if (!this.isGitFileTaskCompleted()) {
+    /// --- TERMINAL TRIGGER VIA TILE PROPERTY ---
+    if (this.level === 4) {
+      // 🔥 livello 4: terminale SEMPRE attivo
       this.createTerminalTriggerFromTiles(ground);
     } else {
-      this.terminalTriggerBody = undefined;
+      // livelli 1–3: logica classica
+      if (!this.isGitFileTaskCompleted()) {
+        this.createTerminalTriggerFromTiles(ground);
+      } else {
+        this.terminalTriggerBody = undefined;
+      }
     }
 
     // collision handler unico (morte + ufo)
@@ -648,20 +669,45 @@ export default class Game extends Phaser.Scene {
           return;
         }
 
-        // UFO GOAL
+        /// UFO GOAL
         if (this.goalBody) {
           const hitGoal =
-            (a === this.goalBody && b === playerBody) || (b === this.goalBody && a === playerBody);
+            (a === this.goalBody && b === playerBody) ||
+            (b === this.goalBody && a === playerBody);
 
           if (hitGoal) {
-            if (!this.isGitFileTaskCompleted()) {
+
+            // 🔹 LIVELLO 4: controllo merge
+            if (
+              this.level === 4 &&
+              !(
+                this.mergedBranches.has("level_1") &&
+                this.mergedBranches.has("level_2") &&
+                this.mergedBranches.has("level_3")
+              )
+            ) {
               this.blockGoalExit();
               return;
             }
-            this.playUfoExitCutscene(this.goalUfo?.x ?? 0, this.goalUfo?.y ?? 0);
+
+            // 🔹 LIVELLI 1–3: controllo task classica
+            if (
+              this.level !== 4 &&
+              !this.isGitFileTaskCompleted()
+            ) {
+              this.blockGoalExit();
+              return;
+            }
+
+            // ✅ OK: puoi uscire
+            this.playUfoExitCutscene(
+              this.goalUfo?.x ?? 0,
+              this.goalUfo?.y ?? 0
+            );
             return;
           }
         }
+
 
         // --- BRICK BOUNCE ---
         const otherBody =
@@ -1384,6 +1430,7 @@ private playWinOnlyOnce() {
   // -------------------------
   // TERMINAL
   // -------------------------
+
   private openTerminal() {
     if (this.terminalOpen) return;
     this.terminalOpen = true;
@@ -1410,6 +1457,70 @@ private playWinOnlyOnce() {
     const h = this.cameras.main.height;
     this.terminalContainer.setPosition(Math.floor(w * 0.5), Math.floor(h * 0.36));
   }
+
+  private relayoutTerminalText() {
+    if (!this.terminalContainer) return;
+
+    const explain = (this.terminalContainer as any).__explain as Phaser.GameObjects.Text;
+    const hint = (this.terminalContainer as any).__hint as Phaser.GameObjects.Text;
+    const cmd = (this.terminalContainer as any).__cmd as Phaser.GameObjects.Text;
+    const feedback = (this.terminalContainer as any).__feedback as Phaser.GameObjects.Text;
+
+    // ricalcola posizioni in cascata
+    hint.setY(explain.y + explain.height + 16);
+    cmd.setY(hint.y + hint.height + 10);
+    feedback.setY(cmd.y + cmd.height + 10);
+
+    const promptY = feedback.y + feedback.height + 18;
+    this.terminalInputText?.setY(promptY);
+    this.terminalCursorText?.setY(promptY);
+
+    const prompt = (this.terminalContainer as any).__prompt as Phaser.GameObjects.Text;
+    prompt.setY(promptY);
+  }
+
+
+
+
+  private showBranchPreview(branch: string) {
+    if (!this.groundLayer) return;
+
+    this.previewBranch = branch;
+
+    this.groundLayer.forEachTile(tile => {
+      const p = tile.properties as any;
+      if (!p?.branch) return;
+
+      tile.setVisible(
+        p.branch === branch || this.mergedBranches.has(p.branch)
+      );
+    });
+
+    this.time.delayedCall(1000, () => {
+      this.previewBranch = null;
+      this.restoreMergedBranches();
+    });
+  }
+
+
+  private mergeBranch(branch: string) {
+    if (!this.createdBranches.has(branch)) return;
+
+    this.mergedBranches.add(branch);
+    this.restoreMergedBranches();
+  }
+  private restoreMergedBranches() {
+    if (!this.groundLayer) return;
+
+    this.groundLayer.forEachTile(tile => {
+      const p = tile.properties as any;
+      if (!p?.branch) return;
+
+      tile.setVisible(this.mergedBranches.has(p.branch));
+    });
+  }
+
+
 
   private showLightHint() {
 
@@ -1474,7 +1585,10 @@ private playWinOnlyOnce() {
     const h = this.cameras.main.height;
 
     const boxW = Math.floor(w * 0.78);
-    const boxH = Math.floor(h * 0.52);
+    const boxH = Math.floor(
+    this.level === 4 ? h * 0.62 : h * 0.52
+  );
+
 
     const TITLE = "32px";
     const OBJ = "24px";
@@ -1506,38 +1620,69 @@ private playWinOnlyOnce() {
       wordWrap: { width: boxW - 44 },
     });
 
-    const hint = this.add.text(-boxW / 2 + 22, -boxH / 2 + 150, `Scrivi esattamente:`, {
-      fontFamily: "monospace",
-      fontSize: HINT,
-      color: "#ffffff",
-    });
+    const hintText =
+        this.level === 4
+          ? "Comandi disponibili:"
+          : "Scrivi esattamente:";
 
-    const cmd = this.add.text(-boxW / 2 + 22, -boxH / 2 + 184, ``, {
-      fontFamily: "monospace",
-      fontSize: CMD,
-      color: "#00ff6a",
-    });
+    const hintY = explain.y + explain.height + 16;
 
-    const feedback = this.add.text(-boxW / 2 + 22, -boxH / 2 + 220, ``, {
-      fontFamily: "monospace",
-      fontSize: FEEDBACK,
-      color: "#00ff6a",
-      wordWrap: { width: boxW - 44 },
-    });
+    const hint = this.add.text(
+      -boxW / 2 + 22,
+      hintY,
+      hintText,
+      {
+        fontFamily: "monospace",
+        fontSize: HINT,
+        color: "#ffffff",
+      }
+    );
 
-    const prompt = this.add.text(-boxW / 2 + 22, -boxH / 2 + 280, `>`, {
+    const cmdY = hint.y + hint.height + 10;
+
+    const cmd = this.add.text(
+      -boxW / 2 + 22,
+      cmdY,
+      ``,
+      {
+        fontFamily: "monospace",
+        fontSize: CMD,
+        color: "#00ff6a",
+      }
+    );
+
+    const feedbackY = cmd.y + cmd.height + 10;
+
+    const feedback = this.add.text(
+      -boxW / 2 + 22,
+      feedbackY,
+      ``,
+      {
+        fontFamily: "monospace",
+        fontSize: FEEDBACK,
+        color: "#00ff6a",
+        wordWrap: { width: boxW - 44 },
+      }
+    );
+
+
+    const PROMPT_Y = feedback.y + feedback.height + 18;
+
+
+
+    const prompt = this.add.text(-boxW / 2 + 22, PROMPT_Y, `>`, {
       fontFamily: "monospace",
       fontSize: PROMPT,
       color: "#ffffff",
     });
 
-    this.terminalInputText = this.add.text(-boxW / 2 + 50, -boxH / 2 + 280, ``, {
+    this.terminalInputText = this.add.text(-boxW / 2 + 50, PROMPT_Y, ``, {
       fontFamily: "monospace",
       fontSize: PROMPT,
       color: "#ffffff",
     });
 
-    this.terminalCursorText = this.add.text(-boxW / 2 + 50, -boxH / 2 + 280, `▌`, {
+    this.terminalCursorText = this.add.text(-boxW / 2 + 50, PROMPT_Y, `▌`, {
       fontFamily: "monospace",
       fontSize: PROMPT,
       color: "#ffffff",
@@ -1572,12 +1717,24 @@ private playWinOnlyOnce() {
     (this.terminalContainer as any).__explain = explain;
     (this.terminalContainer as any).__cmd = cmd;
     (this.terminalContainer as any).__feedback = feedback;
+    (this.terminalContainer as any).__hint = hint;
+    (this.terminalContainer as any).__prompt = prompt;
+
 
     this.renderTerminalStep();
     this.input.keyboard?.on("keydown", this.onTerminalKeyDown, this);
+
+
+
+
+
   }
 
     private renderTerminalStep() {
+
+
+
+
     if (!this.terminalContainer) return;
 
     const objective: Phaser.GameObjects.Text = (this.terminalContainer as any).__objective;
@@ -1587,8 +1744,27 @@ private playWinOnlyOnce() {
 
     feedback.setText("");
 
+    if (this.level === 4) {
+      objective.setText("Obiettivo: costruisci il mondo.");
+      explain.setText(
+        "Costruisci il mondo unendo i rami.\n\n" +
+        "• git branch level_X  → crea un ramo\n" +
+        "• git checkout level_X → guarda un'idea\n" +
+        "• git merge level_X → rende reale il pezzo di mondo\n\n" +
+        "Quando tutti i rami sono uniti, l'ufo sarà raggiungibile."
+        
+      );
+
+      this.relayoutTerminalText();
 
 
+      cmd.setText("");
+      this.terminalInput = "";
+      this.refreshTerminalInput();
+      return;
+    }
+    
+    
     // 🔹 LIVELLO 3 → git pull (rimuove il buio)
     if (this.level === 3) {
       objective.setText("Obiettivo: aggiorna il repository.");
@@ -1663,6 +1839,8 @@ private playWinOnlyOnce() {
       return;
     }
 
+
+
     // Handle "Dead" keys (modifier keys for accents/quotes)
     // Use e.key if it's a single character, otherwise use e.code for common symbols
     if (e.key === "Dead") {
@@ -1707,6 +1885,60 @@ private playWinOnlyOnce() {
     const feedback: Phaser.GameObjects.Text | undefined = this.terminalContainer
       ? (this.terminalContainer as any).__feedback
       : undefined;
+
+      // 🔹 LIVELLO 4 → branch / checkout / merge
+      if (this.level === 4) {
+
+        // git branch level_X
+        const branchMatch = typed.match(/^git branch (level_[123])$/);
+        if (branchMatch) {
+          const b = branchMatch[1];
+          this.createdBranches.add(b);
+          feedback?.setColor("#00ff6a");
+          feedback?.setText(`✓ Branch ${b} creato`);
+          return;
+        }
+
+        // git checkout level_X
+        const checkoutMatch = typed.match(/^git checkout (level_[123])$/);
+        if (checkoutMatch) {
+          const b = checkoutMatch[1];
+          if (!this.createdBranches.has(b)) {
+            feedback?.setColor("#ff4d4d");
+            feedback?.setText(`Il branch ${b} non esiste`);
+            return;
+          }
+          this.showBranchPreview(b);
+          feedback?.setText(`↺ Stato ${b} (anteprima)`);
+          return;
+        }
+
+        // git checkout main
+        if (typed === "git checkout main") {
+          this.restoreMergedBranches();
+          feedback?.setText("↺ Tornato su main");
+          return;
+        }
+
+        // git merge level_X
+        const mergeMatch = typed.match(/^git merge (level_[123])$/);
+        if (mergeMatch) {
+          const b = mergeMatch[1];
+          if (!this.createdBranches.has(b)) {
+            feedback?.setColor("#ff4d4d");
+            feedback?.setText(`Il branch ${b} non esiste`);
+            return;
+          }
+          this.mergeBranch(b);
+          feedback?.setColor("#00ff6a");
+          feedback?.setText(`✓ ${b} unito a main`);
+          return;
+        }
+
+        feedback?.setColor("#ff4d4d");
+        feedback?.setText("Comando non valido");
+        return;
+      }
 
 
       // 🔹 LIVELLO 3 → git pull
@@ -1788,6 +2020,9 @@ private playWinOnlyOnce() {
       return;
     }
   }
+
+
+
 
     private createTerminalTriggerFromTiles(
       layer: Phaser.Tilemaps.TilemapLayer
