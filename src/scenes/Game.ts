@@ -185,6 +185,7 @@ export default class Game extends Phaser.Scene {
   private deathY = Number.POSITIVE_INFINITY; // backup: sotto mappa
   private readonly DEATH_Y_MARGIN = 120;
 
+
   private deathBodies: MatterJS.BodyType[] = []; // sensori “death-zone”
   // =========================
 
@@ -244,6 +245,8 @@ export default class Game extends Phaser.Scene {
   init(data: { level?: number; introDrop?: boolean } = {}) {
     this.level = data.level ?? 1;
     this.introDrop = !!data.introDrop;
+    this.didPlayWin = false;
+    this.stopLevelBgm();
 
     // ✅ salva sempre il livello corrente (utile per "Gioca")
     localStorage.setItem("currentLevel", String(this.level));
@@ -298,6 +301,8 @@ export default class Game extends Phaser.Scene {
 
 
 
+    this.load.audio("bgm-level1", "assets/that-8-bit-music-322062.mp3");
+    this.load.audio("bgm-level2", "assets/retro-gaming-248421.mp3");
 
     this.load.audio("sfx-jump", "assets/sfx-jump.mp3");
     this.load.audio("sfx-level-complete", "assets/sfx-level-complete.mp3");
@@ -312,6 +317,7 @@ export default class Game extends Phaser.Scene {
   create() {
     const cam = this.cameras.main;
     cam.setRoundPixels(true);
+    this.startLevelBgm();
 
     const wantedBgKey = this.level === 1 ? "bg" : `bg${this.level}`;
     const bgKey = this.textures.exists(wantedBgKey) ? wantedBgKey : "bg";
@@ -658,16 +664,33 @@ export default class Game extends Phaser.Scene {
         }
 
         // --- BRICK BOUNCE ---
-        const tileBody =
-          (a !== playerBody && (a as any).gameObject?.tile) ? a :
-          (b !== playerBody && (b as any).gameObject?.tile) ? b :
-          null;
+        const otherBody =
+        (a !== playerBody && (a as any).gameObject?.tile) ? a :
+        (b !== playerBody && (b as any).gameObject?.tile) ? b :
+        null;
 
-        if (tileBody) {
-          this.tryBrickBounce(playerBody);
+        if (otherBody && this.groundLayer) {
+          const tile = (otherBody as any).gameObject.tile as Phaser.Tilemaps.Tile;
+          const props = tile?.properties as any;
+
+          // Solo brick/question (così muri e pavimenti non triggerano)
+          if (props?.brick || props?.question) {
+            const vy = (playerBody as any).velocity?.y ?? 0;
+
+            // Solo se stai salendo (colpo di testa)
+            if (vy < -0.5) {
+              const headY = playerBody.bounds.min.y;
+              const tileBottomY = (otherBody as MatterJS.BodyType).bounds.max.y;
+
+              // La testa deve essere davvero vicino al fondo del tile (hit da sotto)
+              if (headY <= tileBottomY + 2) {
+                this.tryBrickBounceTile(tile, playerBody);
+              }
+            }
+          }
         }
 
-        // --- GOOMBA COLLISION ---
+
         for (const enemy of this.enemies) {
           const eb = enemy.body as MatterJS.BodyType;
           if (!eb || !enemy.getData("alive")) continue;
@@ -713,6 +736,7 @@ export default class Game extends Phaser.Scene {
     
     // cleanup
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.stopLevelBgm();
       this.input.keyboard?.off("keydown", this.onTerminalKeyDown, this);
     });
   }
@@ -896,6 +920,46 @@ export default class Game extends Phaser.Scene {
   private sfxJump!: Phaser.Sound.BaseSound;
   private sfxLevelComplete!: Phaser.Sound.BaseSound;
 
+  private startLevelBgm() {
+  // rispetta il toggle audio
+  const audioOn = localStorage.getItem("audio") !== "off";
+  if (!audioOn) return;
+
+  // scegli musica per livello
+  let key: string | null = null;
+  if (this.level === 1) key = "bgm-level1";
+  if (this.level === 2) key = "bgm-level2";
+
+  if (!key) return;
+
+  // evita doppioni
+  if (this.bgm && this.bgm.isPlaying) return;
+
+  this.bgm = this.sound.add(key, { loop: true, volume: 0.35 });
+  this.bgm.play();
+}
+private bgm?: Phaser.Sound.BaseSound;
+private didPlayWin = false;
+
+private stopLevelBgm() {
+  if (!this.bgm) return;
+  this.bgm.stop();
+  this.bgm.destroy();
+  this.bgm = undefined;
+}
+
+private playWinOnlyOnce() {
+  if (this.didPlayWin) return;
+  this.didPlayWin = true;
+
+  // STOP di qualsiasi bgm prima di suonare la win
+  this.stopLevelBgm();
+
+  // suono vittoria (no sovrapposizione)
+  this.sfxLevelComplete?.play({ volume: 0.6 });
+}
+
+
 
   private freezePlayer() {
     if (!this.penquin) return;
@@ -905,6 +969,43 @@ export default class Game extends Phaser.Scene {
     this.penquin.setVelocity(0, 0);
     this.penquin.setAngularVelocity(0);
   }
+  private tryBrickBounceTile(tile: Phaser.Tilemaps.Tile, playerBody: MatterJS.BodyType) {
+  if (!this.penquin) return;
+
+  const props = tile.properties as any;
+  if (!props?.brick && !props?.question) return;
+
+  // question block
+  if (props?.question) {
+    this.tryQuestionBlock(tile);
+  }
+
+  // ❌ NON fare setVelocityY(0) (causa hover / jump infinito)
+  // ✅ invece: se stavi salendo, spingiti leggermente giù
+  const vy = (playerBody as any).velocity?.y ?? 0;
+  if (vy < 0) this.penquin.setVelocityY(1.2); // prova 0.8–2.0
+
+  // bounce visivo
+  const worldX = tile.getCenterX();
+  const worldY = tile.getCenterY();
+  const frame = tile.index - (this.tileset?.firstgid ?? 1);
+
+  const bounce = this.add
+    .sprite(worldX, worldY, "tiles", frame)
+    .setOrigin(0.5)
+    .setDepth(1000)
+    .setScrollFactor(1);
+
+  this.tweens.add({
+    targets: bounce,
+    y: worldY - 4,
+    duration: 60,
+    yoyo: true,
+    ease: "Sine.easeOut",
+    onComplete: () => bounce.destroy(),
+  });
+}
+
 
   private tryQuestionBlock(tile: Phaser.Tilemaps.Tile) {
     const key = this.tileKey(tile);
@@ -1094,6 +1195,11 @@ export default class Game extends Phaser.Scene {
 
     return h * 0.5;
   }
+  private getDeathMessage(): string {
+  if (this.level === 3) return "Non puoi prendere l'ufo da qui ,ops\nRicomincia...";
+  return "Sei morto\nRicomincia...";
+  }
+
 
   private onPlayerDied() {
     if (this.dead) return;
@@ -1118,7 +1224,7 @@ export default class Game extends Phaser.Scene {
 
     this.deathText?.destroy();
     this.deathText = this.add
-      .text(w * 0.5, this.getDeathMessageScreenY(), "Sei morto\nRicomincia...", {
+      .text(w * 0.5, this.getDeathMessageScreenY(), this.getDeathMessage(), {
         fontFamily: "Arial",
         fontSize: "48px",
         color: "#ffffff",
@@ -1220,8 +1326,6 @@ export default class Game extends Phaser.Scene {
   private playUfoExitCutscene(ufoX: number, ufoY: number) {
     if (this.levelEnding || this.dead) return;
     this.levelEnding = true;
-
-    this.sound.play("sfx-level-complete", { volume: 0.6 });
 
     if (!this.penquin) {
       this.onLevelComplete();
@@ -1635,7 +1739,10 @@ export default class Game extends Phaser.Scene {
         this.completeGitFileTask();
         this.spawnClonePlayer();
 
-        this.time.delayedCall(500, () => this.closeTerminal());
+        this.time.delayedCall(500, () => {
+          this.closeTerminal();
+        });
+
         return;
       }
 
@@ -1671,6 +1778,7 @@ export default class Game extends Phaser.Scene {
         localStorage.setItem(`lvl${this.level}_git_commit_done`, "1");
 
         this.completeGitFileTask();
+      
         this.time.delayedCall(650, () => this.closeTerminal());
         return;
       }
@@ -1831,12 +1939,15 @@ export default class Game extends Phaser.Scene {
     const currentUnlocked = (this.registry.get("unlocked") as number) ?? 1;
     const nextUnlocked = Math.max(currentUnlocked, this.level + 1);
     
-    this.sfxLevelComplete.play();
+    this.playWinOnlyOnce();
 
     this.registry.set("unlocked", nextUnlocked);
     localStorage.setItem("unlocked", String(nextUnlocked));
 
+    this.time.delayedCall(900, () => {
     this.scene.start("level-select", { unlocked: nextUnlocked });
+    });
+
   }
 
   
